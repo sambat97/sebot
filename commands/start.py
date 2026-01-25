@@ -5,8 +5,8 @@ from aiogram.enums import ParseMode
 
 router = Router()
 
-ALLOWED_GROUP = -1003459867774
-OWNER_ID = 8315528188
+ALLOWED_GROUP = -1003328524916
+OWNER_ID = 6957681631
 
 def check_access(msg: Message) -> bool:
     if msg.chat.id == ALLOWED_GROUP:
@@ -20,7 +20,7 @@ async def start_handler(msg: Message):
     if not check_access(msg):
         await msg.answer(
             "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@proscraperbot</code></blockquote>",
+            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@abot654_bot</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -42,7 +42,7 @@ async def help_handler(msg: Message):
     if not check_access(msg):
         await msg.answer(
             "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@proscraperbot</code></blockquote>",
+            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@abot654_bot</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -57,3 +57,4 @@ async def help_handler(msg: Message):
         "「❃」 𝗘𝘅𝗮𝗺𝗽𝗹𝗲 : <code>4242424242424242|12|25|123</code></blockquote>"
     )
     await msg.answer(help_text, parse_mode=ParseMode.HTML)
+
