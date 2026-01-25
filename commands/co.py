@@ -928,7 +928,7 @@ async def co_handler(msg: Message):
     results = []
     charged_card = None
     cancelled = False
-    check_interval = 5
+    check_interval = 50
     last_update = time.perf_counter()
     
     for i, card in enumerate(cards):
