@@ -33,7 +33,7 @@ async def start_handler(msg: Message):
         "<blockquote>「❃」 𝗦𝘂𝗽𝗽𝗼𝗿𝘁𝗲𝗱 𝗨𝗥𝗟𝘀\n"
         "    • <code>checkout.stripe.com</code>\n"
         "    • <code>buy.stripe.com</code></blockquote>\n\n"
-        "<blockquote>「❃」 𝗖𝗼𝗻𝘁𝗮𝗰𝘁 : <code>@victus_xd</code></blockquote>"
+        "<blockquote>「❃」 𝗖𝗼𝗻𝘁𝗮𝗰𝘁 : <code>@Oranglemah97</code></blockquote>"
     )
     await msg.answer(welcome, parse_mode=ParseMode.HTML)
 
@@ -57,5 +57,6 @@ async def help_handler(msg: Message):
         "「❃」 𝗘𝘅𝗮𝗺𝗽𝗹𝗲 : <code>4242424242424242|12|25|123</code></blockquote>"
     )
     await msg.answer(help_text, parse_mode=ParseMode.HTML)
+
 
 
