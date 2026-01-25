@@ -842,28 +842,19 @@ async def co_handler(msg: Message):
                 return
     
     user_proxy = get_user_proxy(user_id)
+    proxy_display = "NOT SET ⚠️"
     
     if not user_proxy:
-        await msg.answer(
-            "<blockquote><code>𝗡𝗼 𝗣𝗿𝗼𝘅𝘆 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>You must set a proxy first</code>\n"
-            "「❃」 𝗔𝗰𝘁𝗶𝗼𝗻 : <code>/addproxy host:port:user:pass</code></blockquote>",
-            parse_mode=ParseMode.HTML
-        )
-        return
+        # Proxy is optional, just show warning
+        proxy_display = "NOT SET ⚠️ (Running without proxy)"
+    else:
+        proxy_info = await get_proxy_info(user_proxy)
+        
+        if proxy_info["status"] == "dead":
+            proxy_display = "DEAD ❌ (Proxy not responding)"
+        else:
+            proxy_display = f"LIVE ✅ | {proxy_info['ip_obfuscated']}"
     
-    proxy_info = await get_proxy_info(user_proxy)
-    
-    if proxy_info["status"] == "dead":
-        await msg.answer(
-            "<blockquote><code>𝗣𝗿𝗼𝘅𝘆 𝗗𝗲𝗮𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>Your proxy is not responding</code>\n"
-            "「❃」 𝗔𝗰𝘁𝗶𝗼𝗻 : <code>Check /proxy or /removeproxy</code></blockquote>",
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
-    proxy_display = f"LIVE ✅ | {proxy_info['ip_obfuscated']}"
     
     processing_msg = await msg.answer(
         "<blockquote><code>𝗣𝗿𝗼𝗰𝗲𝘀𝘀𝗶𝗻𝗴 ⏳</code></blockquote>\n\n"
@@ -1053,6 +1044,3 @@ async def co_handler(msg: Message):
     response += f"「❃」 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲 : <code>{total_time}s</code></blockquote>"
     
     await processing_msg.edit_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-
-
-
