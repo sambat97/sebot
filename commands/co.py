@@ -13,8 +13,8 @@ from aiogram.enums import ParseMode
 
 router = Router()
 
-ALLOWED_GROUP = -1003459867774
-OWNER_ID = 6320782528
+ALLOWED_GROUP = -1003328524916
+OWNER_ID = 6957681631
 PROXY_FILE = "proxies.json"
 
 HEADERS = {
@@ -1053,5 +1053,6 @@ async def co_handler(msg: Message):
     response += f"「❃」 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲 : <code>{total_time}s</code></blockquote>"
     
     await processing_msg.edit_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
 
 
