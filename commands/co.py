@@ -499,7 +499,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     print(f"[DEBUG] PM Error: {err_msg[:60]}")
                     if "tokenization" in err_msg.lower():
                         result["status"] = "NOT SUPPORTED"
-                        result["response"] = err_msg
+                        result["response"] = "Tokenization restricted by merchant"
                     else:
                         result["status"] = "DECLINED"
                         if dc:
@@ -576,6 +576,29 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
             print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
             return result
     
+    return result
+
+async def check_tokenization_support(pk: str) -> dict:
+    """Quick check if merchant allows direct API tokenization using a test card."""
+    result = {"supported": True, "error": None}
+    try:
+        s = await get_session()
+        # Use Stripe test card to check tokenization support
+        test_body = f"type=card&card[number]=4242424242424242&card[cvc]=123&card[exp_month]=12&card[exp_year]=30&key={pk}"
+        async with s.post(
+            "https://api.stripe.com/v1/payment_methods",
+            headers=HEADERS,
+            data=test_body,
+            timeout=aiohttp.ClientTimeout(total=10)
+        ) as r:
+            data = await r.json()
+            if "error" in data:
+                err_msg = data["error"].get("message", "")
+                if "tokenization" in err_msg.lower():
+                    result["supported"] = False
+                    result["error"] = "Tokenization restricted by merchant"
+    except:
+        pass
     return result
 
 async def check_checkout_active(pk: str, cs: str) -> bool:
@@ -894,6 +917,10 @@ async def co_handler(msg: Message):
         return
     
     if not cards:
+        # Check tokenization support during parse
+        token_check = await check_tokenization_support(checkout_data['pk'])
+        token_display = "SUPPORTED ✅" if token_check['supported'] else "NOT SUPPORTED ❌"
+        
         currency = checkout_data.get('currency', '')
         sym = get_currency_symbol(currency)
         price_str = f"{sym}{checkout_data['price']:.2f} {currency}" if checkout_data['price'] else "N/A"
@@ -903,7 +930,8 @@ async def co_handler(msg: Message):
         response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
         response += f"「❃」 𝗖𝗦 : <code>{checkout_data['cs'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗣𝗞 : <code>{checkout_data['pk'] or 'N/A'}</code>\n"
-        response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>SUCCESS ✅</code></blockquote>\n\n"
+        response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>SUCCESS ✅</code>\n"
+        response += f"「❃」 𝗧𝗼𝗸𝗲𝗻 : <code>{token_display}</code></blockquote>\n\n"
         
         response += f"<blockquote>「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗣𝗿𝗼𝗱𝘂𝗰𝘁 : <code>{checkout_data['product'] or 'N/A'}</code>\n"
@@ -929,6 +957,18 @@ async def co_handler(msg: Message):
         response += f"「❃」 𝗧𝗶𝗺𝗲 : <code>{total_time}s</code></blockquote>"
         
         await processing_msg.edit_text(response, parse_mode=ParseMode.HTML)
+        return
+    
+    # Pre-check tokenization before wasting cards
+    token_check = await check_tokenization_support(checkout_data['pk'])
+    if not token_check['supported']:
+        await processing_msg.edit_text(
+            "<blockquote><code>𝗡𝗼𝘁 𝗦𝘂𝗽𝗽𝗼𝗿𝘁𝗲𝗱 🚫</code></blockquote>\n\n"
+            f"<blockquote>「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
+            f"「❃」 𝗥𝗲𝗮𝘀𝗼𝗻 : <code>Tokenization restricted by merchant</code>\n"
+            "「❃」 𝗜𝗻𝗳𝗼 : <code>This checkout blocks direct API charging</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
         return
     
     bypass_str = "YES 🔓" if bypass_3ds else "NO 🔒"
