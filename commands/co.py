@@ -229,6 +229,20 @@ def get_currency_symbol(currency: str) -> str:
     }
     return symbols.get(currency, "")
 
+def format_time(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.2f}s"
+    mins = int(seconds // 60)
+    secs = seconds % 60
+    return f"{mins}m {secs:.2f}s"
+
+CARD_SEPARATOR = "━ ━ ━ ━ ━ ━━━ ━ ━ ━ ━ ━"
+STATUS_EMOJIS = {
+    'CHARGED': '✅', 'DECLINED': '❌', '3DS': '🔐',
+    '3DS SKIP': '🔓', 'NOT SUPPORTED': '🚫',
+    'ERROR': '⚠️', 'FAILED': '⚠️', 'UNKNOWN': '❓'
+}
+
 def check_access(msg: Message) -> bool:
     if msg.chat.id == ALLOWED_GROUP:
         return True
@@ -480,13 +494,20 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                 
                 if "error" in pm:
                     err_msg = pm["error"].get("message", "Card error")
+                    err_code = pm["error"].get("code", "")
+                    dc = pm["error"].get("decline_code", "")
                     print(f"[DEBUG] PM Error: {err_msg[:60]}")
-                    if "unsupported" in err_msg.lower() or "tokenization" in err_msg.lower():
+                    if "tokenization" in err_msg.lower():
                         result["status"] = "NOT SUPPORTED"
-                        result["response"] = "Checkout not supported"
+                        result["response"] = err_msg
                     else:
                         result["status"] = "DECLINED"
-                        result["response"] = err_msg
+                        if dc:
+                            result["response"] = f"[{dc}] [{err_msg}]"
+                        elif err_code:
+                            result["response"] = f"[{err_code}] [{err_msg}]"
+                        else:
+                            result["response"] = err_msg
                     result["time"] = round(time.perf_counter() - start, 2)
                     print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
                     return result
@@ -516,7 +537,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     dc = err.get("decline_code", "")
                     msg = err.get("message", "Failed")
                     result["status"] = "DECLINED"
-                    result["response"] = f"{dc.upper()}: {msg}" if dc else msg
+                    result["response"] = f"[{dc}] [{msg}]" if dc else msg
                     print(f"[DEBUG] Decline: {dc} - {msg}")
                 else:
                     pi = conf.get("payment_intent") or {}
@@ -577,7 +598,7 @@ async def addproxy_handler(msg: Message):
     if not check_access(msg):
         await msg.answer(
             "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@proscraperbot</code></blockquote>",
+            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@sambat1234</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -658,7 +679,7 @@ async def removeproxy_handler(msg: Message):
     if not check_access(msg):
         await msg.answer(
             "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@proscraperbot</code></blockquote>",
+            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@sambat1234</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -706,7 +727,7 @@ async def proxy_handler(msg: Message):
     if not check_access(msg):
         await msg.answer(
             "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@proscraperbot</code></blockquote>",
+            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@sambat1234</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -783,7 +804,7 @@ async def co_handler(msg: Message):
     if not check_access(msg):
         await msg.answer(
             "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@proscraperbot</code></blockquote>",
+            "<blockquote>「❃」 𝗝𝗼𝗶𝗻 𝘁𝗼 𝘂𝘀𝗲 : <code>@sambat1234</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -842,28 +863,18 @@ async def co_handler(msg: Message):
                 return
     
     user_proxy = get_user_proxy(user_id)
+    proxy_display = "DIRECT 🌐"
     
     if not user_proxy:
-        await msg.answer(
-            "<blockquote><code>𝗡𝗼 𝗣𝗿𝗼𝘅𝘆 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>You must set a proxy first</code>\n"
-            "「❃」 𝗔𝗰𝘁𝗶𝗼𝗻 : <code>/addproxy host:port:user:pass</code></blockquote>",
-            parse_mode=ParseMode.HTML
-        )
-        return
+        proxy_display = "DIRECT 🌐"
+    else:
+        proxy_info = await get_proxy_info(user_proxy)
+        
+        if proxy_info["status"] == "dead":
+            proxy_display = "DEAD ❌"
+        else:
+            proxy_display = f"LIVE ✅ | {proxy_info['ip_obfuscated']}"
     
-    proxy_info = await get_proxy_info(user_proxy)
-    
-    if proxy_info["status"] == "dead":
-        await msg.answer(
-            "<blockquote><code>𝗣𝗿𝗼𝘅𝘆 𝗗𝗲𝗮𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>Your proxy is not responding</code>\n"
-            "「❃」 𝗔𝗰𝘁𝗶𝗼𝗻 : <code>Check /proxy or /removeproxy</code></blockquote>",
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
-    proxy_display = f"LIVE ✅ | {proxy_info['ip_obfuscated']}"
     
     processing_msg = await msg.answer(
         "<blockquote><code>𝗣𝗿𝗼𝗰𝗲𝘀𝘀𝗶𝗻𝗴 ⏳</code></blockquote>\n\n"
@@ -978,78 +989,53 @@ async def co_handler(msg: Message):
     
     total_time = round(time.perf_counter() - start_time, 2)
     
+    # Determine header
     if cancelled:
-        response = f"<blockquote><code>「 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 𝗖𝗮𝗻𝗰𝗲𝗹𝗹𝗲𝗱 ⛔ 」</code></blockquote>\n\n"
-        response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-        response += f"「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
-        response += f"「❃」 𝗥𝗲𝗮𝘀𝗼𝗻 : <code>Checkout no longer active</code></blockquote>\n\n"
-        
-        charged = sum(1 for r in results if r['status'] == 'CHARGED')
-        declined = sum(1 for r in results if r['status'] == 'DECLINED')
-        three_ds = sum(1 for r in results if r['status'] in ['3DS', '3DS SKIP'])
-        
-        response += f"<blockquote>「❃」 𝗧𝗿𝗶𝗲𝗱 : <code>{len(results)}/{len(cards)} cards</code>\n"
-        response += f"「❃」 𝗖𝗵𝗮𝗿𝗴𝗲𝗱 : <code>{charged} ✅</code>\n"
-        response += f"「❃」 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝗱 : <code>{declined} ❌</code>\n"
-        response += f"「❃」 𝟯𝗗𝗦 : <code>{three_ds} 🔐</code></blockquote>\n\n"
-        
-        response += f"<blockquote>「❃」 𝗖𝗼𝗺𝗺𝗮𝗻𝗱 : <code>/co</code>\n"
-        response += f"「❃」 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲 : <code>{total_time}s</code></blockquote>"
-        
-        await processing_msg.edit_text(response, parse_mode=ParseMode.HTML)
-        return
+        header = f"「 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 𝗖𝗮𝗻𝗰𝗲𝗹𝗹𝗲𝗱 ⛔ 」"
+    else:
+        header = f"「 𝗦𝘁𝗿𝗶𝗽𝗲 𝗖𝗵𝗮𝗿𝗴𝗲 {price_str} 」 💸"
     
-    response = f"<blockquote><code>「 𝗦𝘁𝗿𝗶𝗽𝗲 𝗖𝗵𝗮𝗿𝗴𝗲 {price_str} 」</code></blockquote>\n\n"
+    response = f"<blockquote><code>{header}</code></blockquote>\n\n"
     response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-    response += f"「❃」 𝗕𝘆𝗽𝗮𝘀𝘀 : <code>{bypass_str}</code>\n"
     response += f"「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
     response += f"「❃」 𝗣𝗿𝗼𝗱𝘂𝗰𝘁 : <code>{checkout_data['product'] or 'N/A'}</code></blockquote>\n\n"
     
-    if charged_card:
-        response += f"<blockquote>「❃」 𝗖𝗮𝗿𝗱 : <code>{charged_card['card']}</code>\n"
-        response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>CHARGED ✅</code>\n"
-        response += f"「❃」 𝗥𝗲𝘀𝗽𝗼𝗻𝘀𝗲 : <code>{charged_card['response']}</code>\n"
-        response += f"「❃」 𝗧𝗶𝗺𝗲 : <code>{charged_card['time']}s</code></blockquote>\n\n"
-        
-        if checkout_data.get('success_url'):
-            response += f"<blockquote>「❃」 𝗦𝘂𝗰𝗰𝗲𝘀𝘀 𝗨𝗥𝗟 : <a href=\"{checkout_data['success_url']}\">Open Success Page</a></blockquote>\n\n"
-        
-        response += f"<blockquote>「❃」 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 : <a href=\"{url}\">Open Checkout</a></blockquote>\n\n"
-        
-        if len(results) > 1:
-            response += f"<blockquote>「❃」 𝗧𝗿𝗶𝗲𝗱 : <code>{len(results)}/{len(cards)} cards</code></blockquote>\n\n"
-    elif len(results) == 1:
-        r = results[0]
-        if r['status'] == '3DS':
-            status_emoji = "🔐"
-        elif r['status'] == '3DS SKIP':
-            status_emoji = "🔓"
-        elif r['status'] == 'DECLINED':
-            status_emoji = "❌"
-        elif r['status'] == 'NOT SUPPORTED':
-            status_emoji = "🚫"
-        else:
-            status_emoji = "⚠️"
-        
-        response += f"<blockquote>「❃」 𝗖𝗮𝗿𝗱 : <code>{r['card']}</code>\n"
-        response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>{r['status']} {status_emoji}</code>\n"
-        response += f"「❃」 𝗥𝗲𝘀𝗽𝗼𝗻𝘀𝗲 : <code>{r['response']}</code>\n"
-        response += f"「❃」 𝗧𝗶𝗺𝗲 : <code>{r['time']}s</code></blockquote>\n\n"
-    else:
-        charged = sum(1 for r in results if r['status'] == 'CHARGED')
-        declined = sum(1 for r in results if r['status'] == 'DECLINED')
-        three_ds = sum(1 for r in results if r['status'] in ['3DS', '3DS SKIP'])
-        errors = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED', 'UNKNOWN'])
-        total = len(results)
-        
-        response += f"<blockquote>「❃」 𝗖𝗵𝗮𝗿𝗴𝗲𝗱 : <code>{charged}/{total} ✅</code>\n"
-        response += f"「❃」 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝗱 : <code>{declined}/{total} ❌</code>\n"
-        response += f"「❃」 𝟯𝗗𝗦 : <code>{three_ds}/{total} 🔐</code>\n"
-        if errors > 0:
-            response += f"「❃」 𝗘𝗿𝗿𝗼𝗿𝘀 : <code>{errors}/{total} ⚠️</code>\n"
-        response += f"</blockquote>\n\n"
+    # Per-card results
+    max_display = 15
+    display_results = results
+    skipped = 0
+    if len(results) > max_display:
+        display_results = results[:5] + results[-(max_display - 5):]
+        skipped = len(results) - max_display
     
-    response += f"<blockquote>「❃」 𝗖𝗼𝗺𝗺𝗮𝗻𝗱 : <code>/co</code>\n"
-    response += f"「❃」 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲 : <code>{total_time}s</code></blockquote>"
+    for i, r in enumerate(display_results):
+        s_emoji = STATUS_EMOJIS.get(r['status'], '❓')
+        response += f"⸙ 𝑪𝒂𝒓𝒅 ➜ <code>{r['card']}</code>\n"
+        response += f"⌬ 𝑺𝒕𝒂𝒕𝒖𝒔 ➜ {r['status']} {s_emoji}\n"
+        response += f"❖ 𝑹𝒆𝒔𝒑𝒐𝒏𝒔𝒆 ➜ <code>{r['response']}</code>\n"
+        if i < len(display_results) - 1:
+            if skipped > 0 and i == 4:
+                response += f"       ⋯ {skipped} 𝗺𝗼𝗿𝗲 𝗰𝗮𝗿𝗱𝘀 ⋯\n"
+            response += f"{CARD_SEPARATOR}\n"
+    
+    # Summary
+    charged_count = sum(1 for r in results if r['status'] == 'CHARGED')
+    declined_count = sum(1 for r in results if r['status'] == 'DECLINED')
+    three_ds_count = sum(1 for r in results if r['status'] in ['3DS', '3DS SKIP'])
+    error_count = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED', 'UNKNOWN', 'NOT SUPPORTED'])
+    
+    response += f"\n<blockquote>💲 𝗦𝘂𝗺𝗺𝗮𝗿𝘆:\n"
+    response += f"✅ 𝗛𝗶𝘁𝘀: {charged_count}\n"
+    response += f"❌ 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
+    if three_ds_count > 0:
+        response += f"🔐 𝟯𝗗𝗦: {three_ds_count}\n"
+    if error_count > 0:
+        response += f"⚠️ 𝗘𝗿𝗿𝗼𝗿𝘀: {error_count}\n"
+    response += f"💸 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
+    response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}</blockquote>"
+    
+    # Add success URL if card was charged
+    if charged_card and checkout_data.get('success_url'):
+        response += f"\n\n<blockquote>🔗 <a href=\"{checkout_data['success_url']}\">Open Success Page</a></blockquote>"
     
     await processing_msg.edit_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
