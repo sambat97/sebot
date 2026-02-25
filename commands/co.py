@@ -278,7 +278,9 @@ def decode_pk_from_url(url: str) -> dict:
         hash_decoded = unquote(hash_part)
         
         try:
-            decoded_bytes = base64.b64decode(hash_decoded)
+            # Add base64 padding if needed
+            padded = hash_decoded + '=' * (-len(hash_decoded) % 4)
+            decoded_bytes = base64.b64decode(padded)
             xored = ''.join(chr(b ^ 5) for b in decoded_bytes)
             
             pk_match = re.search(r'pk_(live|test)_[A-Za-z0-9]+', xored)
@@ -902,7 +904,7 @@ async def co_handler(msg: Message):
     processing_msg = await msg.answer(
         "<blockquote><code>𝗣𝗿𝗼𝗰𝗲𝘀𝘀𝗶𝗻𝗴 ⏳</code></blockquote>\n\n"
         f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-        "「❃」 𝗮𝘁𝘂𝘀 : <code>Parsing checkout...</code></blockquote>",
+        "「❃」 �𝘁�𝗮𝘁𝘂𝘀 : <code>Parsing checkout...</code></blockquote>",
         parse_mode=ParseMode.HTML
     )
     
