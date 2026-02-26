@@ -293,7 +293,38 @@ def extract_checkout_url(text: str) -> str:
             return url
     return None
 
-def decode_pk_from_url(url: str) -> dict:
+async def fetch_pk_from_page(url: str) -> str:
+    """Fetch checkout page HTML and extract PK via regex (fallback method)."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers={
+                "User-Agent": random.choice(USER_AGENTS),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5"
+            }, timeout=aiohttp.ClientTimeout(total=15),
+            allow_redirects=True, ssl=False) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    # Search for PK in various patterns found in Stripe checkout pages
+                    pk_patterns = [
+                        r'pk_(live|test)_[A-Za-z0-9]{20,}',
+                        r'"apiKey"\s*:\s*"(pk_(?:live|test)_[A-Za-z0-9]+)"',
+                        r'"publishableKey"\s*:\s*"(pk_(?:live|test)_[A-Za-z0-9]+)"',
+                        r'Stripe\(["\']?(pk_(?:live|test)_[A-Za-z0-9]+)["\']?\)',
+                    ]
+                    for pattern in pk_patterns:
+                        pk_match = re.search(pattern, html)
+                        if pk_match:
+                            # If it's a group match, use group 1; otherwise group 0
+                            pk = pk_match.group(1) if pk_match.lastindex else pk_match.group(0)
+                            if pk.startswith('pk_'):
+                                print(f"[DEBUG] PK extracted from page HTML: {pk[:20]}...")
+                                return pk
+    except Exception as e:
+        print(f"[DEBUG] fetch_pk_from_page error: {str(e)[:50]}")
+    return None
+
+async def decode_pk_from_url(url: str) -> dict:
     result = {"pk": None, "cs": None, "site": None}
     
     try:
@@ -301,27 +332,34 @@ def decode_pk_from_url(url: str) -> dict:
         if cs_match:
             result["cs"] = cs_match.group(0)
         
-        if '#' not in url:
-            return result
-        
-        hash_part = url.split('#')[1]
-        hash_decoded = unquote(hash_part)
-        
-        try:
-            # Add base64 padding if needed
-            padded = hash_decoded + '=' * (-len(hash_decoded) % 4)
-            decoded_bytes = base64.b64decode(padded)
-            xored = ''.join(chr(b ^ 5) for b in decoded_bytes)
+        # Method 1: Decode from hash fragment (XOR decode)
+        if '#' in url:
+            hash_part = url.split('#')[1]
+            hash_decoded = unquote(hash_part)
             
-            pk_match = re.search(r'pk_(live|test)_[A-Za-z0-9]+', xored)
-            if pk_match:
-                result["pk"] = pk_match.group(0)
-            
-            site_match = re.search(r'https?://[^\s\"\'\<\>]+', xored)
-            if site_match:
-                result["site"] = site_match.group(0)
-        except:
-            pass
+            try:
+                # Add base64 padding if needed
+                padded = hash_decoded + '=' * (-len(hash_decoded) % 4)
+                decoded_bytes = base64.b64decode(padded)
+                xored = ''.join(chr(b ^ 5) for b in decoded_bytes)
+                
+                pk_match = re.search(r'pk_(live|test)_[A-Za-z0-9]+', xored)
+                if pk_match:
+                    result["pk"] = pk_match.group(0)
+                    print(f"[DEBUG] PK decoded from hash: {result['pk'][:20]}...")
+                
+                site_match = re.search(r'https?://[^\s\"\'\'\<\>]+', xored)
+                if site_match:
+                    result["site"] = site_match.group(0)
+            except:
+                pass
+        
+        # Method 2: Fallback — fetch page HTML and extract PK
+        if not result["pk"] and result["cs"]:
+            print(f"[DEBUG] Hash decode failed/missing, trying page fetch fallback...")
+            pk_from_page = await fetch_pk_from_page(url)
+            if pk_from_page:
+                result["pk"] = pk_from_page
             
     except:
         pass
@@ -454,7 +492,7 @@ async def get_checkout_info(url: str) -> dict:
     }
     
     try:
-        decoded = decode_pk_from_url(url)
+        decoded = await decode_pk_from_url(url)
         result["pk"] = decoded.get("pk")
         result["cs"] = decoded.get("cs")
         
