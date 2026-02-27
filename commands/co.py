@@ -1140,7 +1140,13 @@ async def co_handler(msg: Message):
     
     if len(lines) > 1 and not bin_used:
         remaining_text = '\n'.join(lines[1:])
-        cards.extend(parse_cards(remaining_text))
+        # Check if second line is a BIN
+        second_line = lines[1].strip()
+        if is_bin_input(second_line) and not cards:
+            bin_used = re.sub(r'\D', '', second_line)
+            cards = generate_cards_from_bin(bin_used, 10)
+        else:
+            cards.extend(parse_cards(remaining_text))
     
     if msg.reply_to_message and msg.reply_to_message.document:
         doc = msg.reply_to_message.document
