@@ -950,6 +950,12 @@ async def addproxy_handler(msg: Message):
     proxy_input = args[1].strip()
     proxies_to_add = [p.strip() for p in proxy_input.split('\n') if p.strip()]
     
+    # Auto-delete user message to hide proxy credentials
+    try:
+        await msg.delete()
+    except:
+        pass
+    
     if not proxies_to_add:
         await msg.answer(
             "<blockquote><code>𝗘𝗿𝗿𝗼𝗿 ❌</code></blockquote>\n\n"
@@ -1052,6 +1058,13 @@ async def globalproxy_handler(msg: Message):
     
     args = msg.text.split(maxsplit=2)
     global_proxies = get_global_proxies()
+    
+    # Auto-delete user message to hide proxy credentials
+    if len(msg.text.split()) > 2:
+        try:
+            await msg.delete()
+        except:
+            pass
     
     # No args — show current global proxies
     if len(args) < 2:
