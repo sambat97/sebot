@@ -551,9 +551,9 @@ def generate_luhn_card(prefix: str, length: int = 16) -> str:
     return body + str(check_digit)
 
 def generate_cards_from_bin(bin_str: str, count: int = 10) -> list:
-    """Generate random cards from a BIN prefix (6-8 digits). Max 10 cards."""
+    """Generate random cards from a BIN prefix (6-12 digits). Max 10 cards."""
     bin_str = re.sub(r'\D', '', bin_str)
-    if len(bin_str) < 6 or len(bin_str) > 8:
+    if len(bin_str) < 6 or len(bin_str) > 12:
         return []
     
     count = min(count, 10)
@@ -592,9 +592,9 @@ def generate_cards_from_bin(bin_str: str, count: int = 10) -> list:
     return cards
 
 def is_bin_input(text: str) -> bool:
-    """Check if text looks like a BIN (6-8 digits only)."""
+    """Check if text looks like a BIN (6-12 digits only)."""
     cleaned = re.sub(r'\D', '', text.strip())
-    return 6 <= len(cleaned) <= 8
+    return 6 <= len(cleaned) <= 12
 
 async def get_checkout_info(url: str) -> dict:
     start = time.perf_counter()
