@@ -2,11 +2,13 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
+from config import SERVER_ID
 
 router = Router()
 
 ALLOWED_GROUP = -1003328524916
 OWNER_ID = 6957681631
+CMD_NAME = SERVER_ID
 
 def check_access(msg: Message) -> bool:
     if msg.chat.id == ALLOWED_GROUP:
@@ -28,8 +30,8 @@ async def start_handler(msg: Message):
     welcome = (
         "<blockquote><code>𝗩𝗶𝗰𝘁𝘂𝘀 𝗧𝗼𝗼𝗹𝘀 ⚡</code></blockquote>\n\n"
         "<blockquote>「❃」 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 𝗣𝗮𝗿𝘀𝗲𝗿\n"
-        "    • <code>/co url</code> - Parse Stripe Checkout\n"
-        "    • <code>/co url cc|mm|yy|cvv</code> - Charge Card</blockquote>\n\n"
+        f"    • <code>/{CMD_NAME} url</code> - Parse Stripe Checkout\n"
+        f"    • <code>/{CMD_NAME} url cc|mm|yy|cvv</code> - Charge Card</blockquote>\n\n"
         "<blockquote>「❃」 𝗦𝘂𝗽𝗽𝗼𝗿𝘁𝗲𝗱 𝗨𝗥𝗟𝘀\n"
         "    • <code>checkout.stripe.com</code>\n"
         "    • <code>buy.stripe.com</code></blockquote>\n\n"
@@ -51,12 +53,9 @@ async def help_handler(msg: Message):
         "<blockquote><code>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 📋</code></blockquote>\n\n"
         "<blockquote>「❃」 <code>/start</code> - Show welcome message\n"
         "「❃」 <code>/help</code> - Show this help\n"
-        "「❃」 <code>/co url</code> - Parse checkout info\n"
-        "「❃」 <code>/co url cards</code> - Charge cards</blockquote>\n\n"
+        f"「❃」 <code>/{CMD_NAME} url</code> - Parse checkout info\n"
+        f"「❃」 <code>/{CMD_NAME} url cards</code> - Charge cards</blockquote>\n\n"
         "<blockquote>「❃」 𝗖𝗮𝗿𝗱 𝗙𝗼𝗿𝗺𝗮𝘁 : <code>cc|mm|yy|cvv</code>\n"
         "「❃」 𝗘𝘅𝗮𝗺𝗽𝗹𝗲 : <code>4242424242424242|12|25|123</code></blockquote>"
     )
     await msg.answer(help_text, parse_mode=ParseMode.HTML)
-
-
-
