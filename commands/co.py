@@ -397,9 +397,8 @@ def format_time(seconds: float) -> str:
 
 CARD_SEPARATOR = "━ ━ ━ ━ ━ ━━━ ━ ━ ━ ━ ━"
 STATUS_EMOJIS = {
-    'CHARGED': '✅', 'DECLINED': '❌', '3DS': '🔐',
-    '3DS SKIP': '🔓', 'NOT SUPPORTED': '🚫',
-    'ERROR': '⚠️', 'FAILED': '⚠️', 'UNKNOWN': '❓'
+    'CHARGED': '😎', 'DECLINED': '🥲', '3DS': '�',
+    'ERROR': '💀', 'FAILED': '💀', 'UNKNOWN': '❓'
 }
 
 def check_access(msg: Message) -> bool:
@@ -1143,18 +1142,19 @@ async def co_handler(msg: Message):
                 )
                 return
     
-    user_proxy = get_user_proxy(user_id)
+    user_proxies = get_user_proxies(user_id)
     proxy_display = "DIRECT 🌐"
     
-    if not user_proxy:
+    if not user_proxies:
         proxy_display = "DIRECT 🌐"
-    else:
-        proxy_info = await get_proxy_info(user_proxy)
-        
+    elif len(user_proxies) == 1:
+        proxy_info = await get_proxy_info(user_proxies[0])
         if proxy_info["status"] == "dead":
             proxy_display = "DEAD ❌"
         else:
             proxy_display = f"LIVE ✅ | {proxy_info['ip_obfuscated']}"
+    else:
+        proxy_display = f"ROTATING 🔄 | {len(user_proxies)} proxies"
     
     
     processing_msg = await msg.answer(
@@ -1239,7 +1239,9 @@ async def co_handler(msg: Message):
                 cancelled = True
                 break
         
-        result = await charge_card(card, checkout_data, user_proxy)
+        # Rotate proxy per card
+        card_proxy = get_user_proxy(user_id)
+        result = await charge_card(card, checkout_data, card_proxy)
         results.append(result)
         
         if len(cards) > 1 and (time.perf_counter() - last_update) > 1.5:
@@ -1254,10 +1256,10 @@ async def co_handler(msg: Message):
                     f"<blockquote><code>「 𝗖𝗵𝗮𝗿𝗴𝗶𝗻𝗴 {price_str} 」</code></blockquote>\n\n"
                     f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
                     f"「❃」 𝗿𝗼𝗴𝗿𝗲𝘀𝘀 : <code>{i+1}/{len(cards)}</code></blockquote>\n\n"
-                    f"<blockquote>「❃」 𝗖𝗵𝗮𝗿𝗴𝗲𝗱 : <code>{charged} ✅</code>\n"
-                    f"「❃」 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝗱 : <code>{declined} ❌</code>\n"
-                    f"「❃」 𝟯𝗗𝗦 : <code>{three_ds} 🔐</code>\n"
-                    f"「❃」 𝗘𝗿𝗿𝗼𝗿𝘀 : <code>{errors} ⚠️</code></blockquote>",
+                    f"<blockquote>「❃」 𝗖𝗵𝗮𝗿𝗴𝗲𝗱 : <code>{charged} 😎</code>\n"
+                    f"「❃」 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝗱 : <code>{declined} 🥲</code>\n"
+                    f"「❃」 𝟯𝗗𝗦 : <code>{three_ds} �</code>\n"
+                    f"「❃」 𝗘𝗿𝗿𝗼𝗿𝘀 : <code>{errors} 💀</code></blockquote>",
                     parse_mode=ParseMode.HTML
                 )
             except:
@@ -1305,12 +1307,12 @@ async def co_handler(msg: Message):
     error_count = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED', 'UNKNOWN', 'NOT SUPPORTED'])
     
     response += f"\n<blockquote>💲 𝗦𝘂𝗺𝗺𝗮𝗿𝘆:\n"
-    response += f"✅ 𝗛𝗶𝘁𝘀: {charged_count}\n"
-    response += f"❌ 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
+    response += f"😎 𝗛𝗶𝘁𝘀: {charged_count}\n"
+    response += f"🥲 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
     if three_ds_count > 0:
-        response += f"🔐 𝟯𝗗𝗦: {three_ds_count}\n"
+        response += f"� 𝟯𝗗𝗦: {three_ds_count}\n"
     if error_count > 0:
-        response += f"⚠️ 𝗘𝗿𝗿𝗼𝗿𝘀: {error_count}\n"
+        response += f"💀 𝗘𝗿𝗿𝗼𝗿𝘀: {error_count}\n"
     response += f"💸 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
     response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}</blockquote>"
     
