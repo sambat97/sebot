@@ -3,4 +3,5 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8567089879:AAEPi1TDK995PTv_vAZPkqHn9-DfwxBwNB8")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+SERVER_ID = os.getenv("SERVER_ID", "co").lower().strip()
