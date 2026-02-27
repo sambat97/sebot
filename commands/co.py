@@ -286,11 +286,39 @@ def remove_user_proxy(user_id: int, proxy: str = None):
         return True
     return False
 
+def get_global_proxies() -> list:
+    proxies = load_proxies()
+    data = proxies.get("global", [])
+    return data if isinstance(data, list) else []
+
+def add_global_proxy(proxy: str):
+    proxies = load_proxies()
+    if "global" not in proxies:
+        proxies["global"] = []
+    if proxy not in proxies["global"]:
+        proxies["global"].append(proxy)
+    save_proxies(proxies)
+
+def remove_global_proxy(proxy: str = None):
+    proxies = load_proxies()
+    if "global" in proxies:
+        if proxy is None or proxy.lower() == "all":
+            del proxies["global"]
+        else:
+            proxies["global"] = [p for p in proxies["global"] if p != proxy]
+            if not proxies["global"]:
+                del proxies["global"]
+        save_proxies(proxies)
+        return True
+    return False
+
 def get_user_proxy(user_id: int) -> str:
+    # User proxies first, then global proxies as fallback
     user_proxies = get_user_proxies(user_id)
-    if user_proxies:
-        import random
-        return random.choice(user_proxies)
+    global_proxies = get_global_proxies()
+    all_proxies = user_proxies + global_proxies
+    if all_proxies:
+        return random.choice(all_proxies)
     return None
 
 def obfuscate_ip(ip: str) -> str:
@@ -1008,6 +1036,106 @@ async def removeproxy_handler(msg: Message):
         await msg.answer(
             "<blockquote><code>𝗘𝗿𝗿𝗼𝗿 ❌</code></blockquote>\n\n"
             f"<blockquote>「❃」 𝗗𝗲𝘁𝗮𝗶𝗹 : <code>Proxy not found</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+
+@router.message(Command("globalproxy"))
+async def globalproxy_handler(msg: Message):
+    # Only owner can manage global proxies
+    if msg.from_user.id != OWNER_ID:
+        await msg.answer(
+            "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗗𝗲𝘁𝗮𝗶𝗹 : <code>Owner only</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    args = msg.text.split(maxsplit=2)
+    global_proxies = get_global_proxies()
+    
+    # No args — show current global proxies
+    if len(args) < 2:
+        if global_proxies:
+            proxy_list = "\n".join([f"    • <code>{p}</code>" for p in global_proxies[:15]])
+            if len(global_proxies) > 15:
+                proxy_list += f"\n    • <code>... and {len(global_proxies) - 15} more</code>"
+        else:
+            proxy_list = "    • <code>None</code>"
+        
+        await msg.answer(
+            "<blockquote><code>𝗚𝗹𝗼𝗯𝗮𝗹 𝗣𝗿𝗼𝘅𝘆 🌍</code></blockquote>\n\n"
+            f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝗶𝗲𝘀 ({len(global_proxies)}) :\n{proxy_list}</blockquote>\n\n"
+            "<blockquote>「❃」 𝗔𝗱𝗱 : <code>/globalproxy add proxy</code>\n"
+            "「❃」 𝗥𝗲𝗺𝗼𝘃𝗲 : <code>/globalproxy remove proxy</code>\n"
+            "「❃」 𝗖𝗹𝗲𝗮𝗿 : <code>/globalproxy remove all</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    action = args[1].lower()
+    
+    if action == "add" and len(args) > 2:
+        proxy_text = args[2].strip()
+        lines = msg.text.split('\n')
+        proxies_to_add = []
+        for line in lines:
+            line = line.strip()
+            if ':' in line and not line.startswith('/'):
+                proxies_to_add.append(line)
+        
+        if not proxies_to_add and proxy_text:
+            proxies_to_add = [proxy_text]
+        
+        if not proxies_to_add:
+            await msg.answer(
+                "<blockquote><code>𝗘𝗿𝗿𝗼𝗿 ❌</code></blockquote>\n\n"
+                "<blockquote>「❃」 𝗗𝗲𝘁𝗮𝗶𝗹 : <code>No valid proxies</code></blockquote>",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        
+        checking_msg = await msg.answer(
+            "<blockquote><code>𝗖𝗵𝗲𝗰𝗸𝗶𝗻𝗴 𝗣𝗿𝗼𝘅𝗶𝗲𝘀 ⏳</code></blockquote>\n\n"
+            f"<blockquote>「❃」 𝗧𝗼𝘁𝗮𝗹 : <code>{len(proxies_to_add)}</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        
+        results = await check_proxies_batch(proxies_to_add, max_threads=10)
+        added = 0
+        for r in results:
+            if r["status"] == "alive":
+                add_global_proxy(r["proxy"])
+                added += 1
+        
+        total_now = len(get_global_proxies())
+        await checking_msg.edit_text(
+            "<blockquote><code>𝗚𝗹𝗼𝗯𝗮𝗹 𝗣𝗿𝗼𝘅𝘆 𝗔𝗱𝗱𝗲𝗱 ✅</code></blockquote>\n\n"
+            f"<blockquote>「❃」 𝗔𝗱𝗱𝗲𝗱 : <code>{added}/{len(proxies_to_add)} ✅</code>\n"
+            f"「❃」 𝗧𝗼𝘁𝗮𝗹 : <code>{total_now} proxies</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+    
+    elif action == "remove" and len(args) > 2:
+        target = args[2].strip()
+        if remove_global_proxy(target):
+            total_now = len(get_global_proxies())
+            await msg.answer(
+                "<blockquote><code>𝗚𝗹𝗼𝗯𝗮𝗹 𝗣𝗿𝗼𝘅𝘆 𝗥𝗲𝗺𝗼𝘃𝗲𝗱 ✅</code></blockquote>\n\n"
+                f"<blockquote>「❃」 𝗥𝗲𝗺𝗮𝗶𝗻𝗶𝗻𝗴 : <code>{total_now} proxies</code></blockquote>",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await msg.answer(
+                "<blockquote><code>𝗘𝗿𝗿𝗼𝗿 ❌</code></blockquote>\n\n"
+                "<blockquote>「❃」 𝗗𝗲𝘁𝗮𝗶𝗹 : <code>No global proxies found</code></blockquote>",
+                parse_mode=ParseMode.HTML
+            )
+    else:
+        await msg.answer(
+            "<blockquote><code>𝗚𝗹𝗼𝗯𝗮𝗹 𝗣𝗿𝗼𝘅𝘆 🌍</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗔𝗱𝗱 : <code>/globalproxy add proxy</code>\n"
+            "「❃」 𝗥𝗲𝗺𝗼𝘃𝗲 : <code>/globalproxy remove proxy</code>\n"
+            "「❃」 𝗖𝗹𝗲𝗮𝗿 : <code>/globalproxy remove all</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
 
