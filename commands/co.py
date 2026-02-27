@@ -21,51 +21,157 @@ OWNER_ID = 6957681631
 PROXY_FILE = "proxies.json"
 
 USER_AGENTS = [
-    # Chrome Windows
+    # Chrome Windows (various versions)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     # Chrome Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
     # Chrome Linux
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    # Firefox Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-    # Firefox Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:123.0) Gecko/20100101 Firefox/123.0",
-    # Firefox Linux
-    "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
     # Edge Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0",
+    # Edge Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+    # Firefox Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
+    # Firefox Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0",
+    # Firefox Linux
+    "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
     # Safari Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
     # Opera Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 OPR/108.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 OPR/116.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 OPR/115.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 OPR/114.0.0.0",
 ]
+
+# Stripe.js version hashes — rotated randomly per request
+STRIPE_JS_HASHES = [
+    "3f83cd1837", "b117b33abe", "a2c5d8f910", "d4e6f7a8b2",
+    "c1d2e3f4a5", "f9e8d7c6b5", "1a2b3c4d5e", "6f7a8b9c0d",
+    "e5d4c3b2a1", "9f8e7d6c5b", "2b3c4d5e6f", "7a8b9c0d1e",
+    "a3f8c2d1b7", "4e5f6a7b8c", "0d1e2f3a4b", "8c9d0e1f2a",
+]
+
+def _detect_browser_info(ua: str) -> dict:
+    """Extract browser name, version, and platform from user agent string."""
+    info = {"browser": "Chrome", "version": "131", "platform": "Windows"}
+    
+    # Detect platform
+    if "Macintosh" in ua or "Mac OS X" in ua:
+        info["platform"] = "macOS"
+    elif "Linux" in ua:
+        info["platform"] = "Linux"
+    else:
+        info["platform"] = "Windows"
+    
+    # Detect browser + version
+    import re
+    if "Edg/" in ua:
+        info["browser"] = "Edge"
+        m = re.search(r'Edg/(\d+)', ua)
+        if m: info["version"] = m.group(1)
+    elif "OPR/" in ua:
+        info["browser"] = "Opera"
+        m = re.search(r'Chrome/(\d+)', ua)
+        if m: info["version"] = m.group(1)
+    elif "Firefox/" in ua:
+        info["browser"] = "Firefox"
+        m = re.search(r'Firefox/(\d+)', ua)
+        if m: info["version"] = m.group(1)
+    elif "Safari/" in ua and "Chrome" not in ua:
+        info["browser"] = "Safari"
+        m = re.search(r'Version/(\d+)', ua)
+        if m: info["version"] = m.group(1)
+    else:
+        info["browser"] = "Chrome"
+        m = re.search(r'Chrome/(\d+)', ua)
+        if m: info["version"] = m.group(1)
+    
+    return info
 
 def get_headers(stripe_js: bool = False) -> dict:
     """Return headers mimicking Stripe.js browser requests."""
+    ua = random.choice(USER_AGENTS)
     headers = {
         "accept": "application/json",
         "content-type": "application/x-www-form-urlencoded",
         "origin": "https://checkout.stripe.com",
         "referer": "https://checkout.stripe.com/",
-        "user-agent": random.choice(USER_AGENTS)
+        "user-agent": ua
     }
     if stripe_js:
-        headers["accept"] = "application/json"
-        headers["accept-language"] = "en-US,en;q=0.9"
+        browser = _detect_browser_info(ua)
+        v = browser["version"]
+        platform = browser["platform"]
+        
+        headers["accept-language"] = random.choice([
+            "en-US,en;q=0.9",
+            "en-US,en;q=0.9,id;q=0.8",
+            "en-GB,en;q=0.9,en-US;q=0.8",
+            "en-US,en;q=0.9,nl;q=0.8",
+            "en-US,en;q=0.9,de;q=0.8",
+            "en-US,en;q=0.9,fr;q=0.8",
+            "en-US,en;q=0.9,ja;q=0.8",
+        ])
         headers["sec-fetch-dest"] = "empty"
         headers["sec-fetch-mode"] = "cors"
         headers["sec-fetch-site"] = "same-site"
-        headers["sec-ch-ua"] = '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"'
-        headers["sec-ch-ua-mobile"] = "?0"
-        headers["sec-ch-ua-platform"] = '"Windows"'
+        
+        # Dynamic sec-ch-ua based on actual browser
+        if browser["browser"] in ("Chrome", "Edge", "Opera"):
+            not_a_brands = [
+                '"Not(A:Brand";v="24"',
+                '"Not_A Brand";v="8"',
+                '"Not/A)Brand";v="8"',
+                '"Not A(Brand";v="99"',
+                '"Not)A;Brand";v="99"',
+            ]
+            not_a = random.choice(not_a_brands)
+            if browser["browser"] == "Edge":
+                headers["sec-ch-ua"] = f'"Chromium";v="{v}", {not_a}, "Microsoft Edge";v="{v}"'
+            elif browser["browser"] == "Opera":
+                headers["sec-ch-ua"] = f'"Chromium";v="{v}", {not_a}, "Opera";v="{v}"'
+            else:
+                headers["sec-ch-ua"] = f'"Chromium";v="{v}", {not_a}, "Google Chrome";v="{v}"'
+            headers["sec-ch-ua-mobile"] = "?0"
+            headers["sec-ch-ua-platform"] = f'"{platform}"'
+        # Firefox/Safari don't send sec-ch-ua
+    
     return headers
+
+def get_random_stripe_js_agent() -> str:
+    """Get a random Stripe.js payment_user_agent string."""
+    h = random.choice(STRIPE_JS_HASHES)
+    return f"stripe.js%2F{h}%3B+stripe-js-v3%2F{h}%3B+checkout"
 
 def generate_stripe_fingerprints() -> dict:
     """Generate Stripe.js-style fingerprint identifiers (muid, guid, sid)."""
@@ -672,7 +778,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     f"&payment_method_data[guid]={fp['guid']}"
                     f"&payment_method_data[muid]={fp['muid']}"
                     f"&payment_method_data[sid]={fp['sid']}"
-                    f"&payment_method_data[payment_user_agent]=stripe.js%2F3f83cd1837%3B+stripe-js-v3%2F3f83cd1837%3B+checkout"
+                    f"&payment_method_data[payment_user_agent]={get_random_stripe_js_agent()}"
                     f"&payment_method_data[time_on_page]={time_on_page}"
                     f"&payment_method_data[pasted_fields]=number"
                     f"&expected_amount={total}"
