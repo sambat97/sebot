@@ -14,10 +14,24 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 
+from config import SERVER_ID
+
 router = Router()
 
 ALLOWED_GROUP = -1003328524916
 OWNER_ID = 6957681631
+
+# Server flag emojis
+SERVER_FLAGS = {
+    'us1': '🇺🇸 US1', 'us2': '🇺🇸 US2', 'us3': '🇺🇸 US3',
+    'nl': '🇳🇱 NL', 'neth': '🇳🇱 NETH',
+    'sg': '🇸🇬 SG', 'jp': '🇯🇵 JP',
+    'de': '🇩🇪 DE', 'uk': '🇬🇧 UK', 'fr': '🇫🇷 FR',
+    'id': '🇮🇩 ID', 'in': '🇮🇳 IN', 'au': '🇦🇺 AU',
+    'co': '🌐 BOT',
+}
+SERVER_DISPLAY = SERVER_FLAGS.get(SERVER_ID, f'🌐 {SERVER_ID.upper()}')
+CMD_NAME = SERVER_ID  # command name = server id
 PROXY_FILE = "proxies.json"
 
 USER_AGENTS = [
@@ -397,7 +411,7 @@ def format_time(seconds: float) -> str:
 
 CARD_SEPARATOR = "━ ━ ━ ━ ━ ━━━ ━ ━ ━ ━ ━"
 STATUS_EMOJIS = {
-    'CHARGED': '😎', 'DECLINED': '🥲', '3DS': '�',
+    'CHARGED': '😎', 'DECLINED': '🥲', '3DS': '😡',
     'ERROR': '💀', 'FAILED': '💀', 'UNKNOWN': '❓'
 }
 
@@ -1074,7 +1088,7 @@ async def proxy_handler(msg: Message):
     
     await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
 
-@router.message(Command("co"))
+@router.message(Command(CMD_NAME))
 async def co_handler(msg: Message):
     if not check_access(msg):
         await msg.answer(
@@ -1092,11 +1106,11 @@ async def co_handler(msg: Message):
     
     if len(first_line_args) < 2:
         await msg.answer(
-            "<blockquote><code>𝗦𝘁𝗿𝗶𝗽𝗲 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 ⚡</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗨𝘀𝗮𝗴𝗲 : <code>/co url</code>\n"
-            "「❃」 𝗖𝗵𝗮𝗿𝗴𝗲 : <code>/co url cc|mm|yy|cvv</code>\n"
-            "「❃」 𝗕𝗡 : <code>/co url BIN</code>\n"
-            "「❃」 𝗙𝗶𝗹𝗲 : <code>Reply to .txt with /co url</code></blockquote>",
+            f"<blockquote><code>𝗦𝘁𝗿𝗶𝗽𝗲 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 ⚡ [{SERVER_DISPLAY}]</code></blockquote>\n\n"
+            f"<blockquote>「❃」 𝗨𝘀𝗮𝗴𝗲 : <code>/{CMD_NAME} url</code>\n"
+            f"「❃」 𝗖𝗵𝗮𝗿𝗴𝗲 : <code>/{CMD_NAME} url cc|mm|yy|cvv</code>\n"
+            f"「❃」 𝗕��𝗡 : <code>/{CMD_NAME} url BIN</code>\n"
+            f"「❃」 𝗙𝗶𝗹𝗲 : <code>Reply to .txt with /{CMD_NAME} url</code></blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -1181,7 +1195,8 @@ async def co_handler(msg: Message):
         total_time = round(time.perf_counter() - start_time, 2)
         
         response = f"<blockquote><code>「 𝗦𝘁𝗿𝗶𝗽𝗲 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 {price_str} 」</code></blockquote>\n\n"
-        response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
+        response += f"<blockquote>「❃」 𝗦𝗲𝗿𝘃𝗲𝗿 : <code>{SERVER_DISPLAY}</code>\n"
+        response += f"「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
         response += f"「❃」 𝗖𝗦 : <code>{checkout_data['cs'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗣𝗞 : <code>{checkout_data['pk'] or 'N/A'}</code>\n"
         response += f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>SUCCESS ✅</code></blockquote>\n\n"
@@ -1206,7 +1221,7 @@ async def co_handler(msg: Message):
             response += f"<blockquote>「❃」 𝗦𝘂𝗰𝗰𝗲𝘀𝘀 : <code>{checkout_data['success_url'] or 'N/A'}</code>\n"
             response += f"「❃」 𝗖𝗮𝗻𝗰𝗲𝗹 : <code>{checkout_data['cancel_url'] or 'N/A'}</code></blockquote>\n\n"
         
-        response += f"<blockquote>「❃」 𝗖𝗼𝗺𝗺𝗮𝗻𝗱 : <code>/co</code>\n"
+        response += f"<blockquote>「❃」 𝗖𝗼𝗺𝗺𝗮𝗻𝗱 : <code>/{CMD_NAME}</code>\n"
         response += f"「❃」 𝗧𝗶𝗺𝗲 : <code>{total_time}s</code></blockquote>"
         
         await processing_msg.edit_text(response, parse_mode=ParseMode.HTML)
@@ -1220,7 +1235,8 @@ async def co_handler(msg: Message):
     
     await processing_msg.edit_text(
         f"<blockquote><code>「 𝗖𝗵𝗮𝗿𝗴𝗶𝗻𝗴 {price_str} 」</code></blockquote>\n\n"
-        f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>{bin_display}\n"
+        f"<blockquote>「❃」 𝗦𝗲𝗿𝘃𝗲𝗿 : <code>{SERVER_DISPLAY}</code>\n"
+        f"「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>{bin_display}\n"
         f"「❃」 𝗖𝗮𝗿𝗱𝘀 : <code>{len(cards)}</code>\n"
         f"「❃」 𝗦𝘁𝗮𝘁𝘂𝘀 : <code>Starting...</code></blockquote>",
         parse_mode=ParseMode.HTML
@@ -1258,7 +1274,7 @@ async def co_handler(msg: Message):
                     f"「❃」 𝗿𝗼𝗴𝗿𝗲𝘀𝘀 : <code>{i+1}/{len(cards)}</code></blockquote>\n\n"
                     f"<blockquote>「❃」 𝗖𝗵𝗮𝗿𝗴𝗲𝗱 : <code>{charged} 😎</code>\n"
                     f"「❃」 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝗱 : <code>{declined} 🥲</code>\n"
-                    f"「❃」 𝟯𝗗𝗦 : <code>{three_ds} �</code>\n"
+                    f"「❃」 𝟯𝗗𝗦 : <code>{three_ds} 😡</code>\n"
                     f"「❃」 𝗘𝗿𝗿𝗼𝗿𝘀 : <code>{errors} 💀</code></blockquote>",
                     parse_mode=ParseMode.HTML
                 )
@@ -1310,7 +1326,7 @@ async def co_handler(msg: Message):
     response += f"😎 𝗛𝗶𝘁𝘀: {charged_count}\n"
     response += f"🥲 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
     if three_ds_count > 0:
-        response += f"� 𝟯𝗗𝗦: {three_ds_count}\n"
+        response += f"😡 𝟯𝗗𝗦: {three_ds_count}\n"
     if error_count > 0:
         response += f"💀 𝗘𝗿𝗿𝗼𝗿𝘀: {error_count}\n"
     response += f"💸 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
