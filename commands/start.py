@@ -59,3 +59,14 @@ async def help_handler(msg: Message):
         "「❃」 𝗘𝘅𝗮𝗺𝗽𝗹𝗲 : <code>4242424242424242|12|25|123</code></blockquote>"
     )
     await msg.answer(help_text, parse_mode=ParseMode.HTML)
+
+@router.message(Command("myid"))
+async def myid_handler(msg: Message):
+    await msg.answer(
+        f"<blockquote><code>𝗜𝗗 𝗜𝗻𝗳𝗼 🔍</code></blockquote>\n\n"
+        f"<blockquote>「❃」 𝗖𝗵𝗮𝘁 𝗜𝗗 : <code>{msg.chat.id}</code>\n"
+        f"「❃」 𝗖𝗵𝗮𝘁 𝗧𝘆𝗽𝗲 : <code>{msg.chat.type}</code>\n"
+        f"「❃」 𝗨𝘀𝗲𝗿 𝗜𝗗 : <code>{msg.from_user.id}</code>\n"
+        f"「❃」 𝗔𝗹𝗹𝗼𝘄𝗲𝗱 : <code>{ALLOWED_GROUP}</code></blockquote>",
+        parse_mode=ParseMode.HTML
+    )
