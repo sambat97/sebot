@@ -218,10 +218,8 @@ def generate_stripe_fingerprints(user_id: int = None) -> dict:
     return {"muid": muid, "guid": guid, "sid": sid}
 
 def generate_eid() -> str:
-    """Generate a realistic eid (element ID) like Stripe.js does."""
-    # Real format: 'eid_' + random alphanumeric
-    chars = string.ascii_lowercase + string.digits
-    return 'eid_' + ''.join(random.choices(chars, k=16))
+    """Generate a valid UUID v4 for the eid parameter."""
+    return str(uuid.uuid4())
 
 def get_stripe_cookies(fp: dict) -> str:
     """Generate Stripe cookie header mimicking real browser."""
