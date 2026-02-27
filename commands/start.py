@@ -28,7 +28,7 @@ async def start_handler(msg: Message):
         return
     
     welcome = (
-        "<blockquote><code>𝗩𝗶𝗰𝘁𝘂𝘀 𝗧𝗼𝗼𝗹𝘀 ⚡</code></blockquote>\n\n"
+        "<blockquote><code>𝗢𝗿𝗮𝗻𝗴_𝗟𝗲𝗺𝗮𝗵 ⚡</code></blockquote>\n\n"
         "<blockquote>「❃」 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 𝗣𝗮𝗿𝘀𝗲𝗿\n"
         f"    • <code>/{CMD_NAME} url</code> - Parse Stripe Checkout\n"
         f"    • <code>/{CMD_NAME} url cc|mm|yy|cvv</code> - Charge Card</blockquote>\n\n"
