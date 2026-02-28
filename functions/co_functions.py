@@ -1,15 +1,43 @@
 import re
 import aiohttp
 import base64
+import uuid
+import random
 from urllib.parse import unquote
 
-HEADERS = {
-    "accept": "application/json",
-    "content-type": "application/x-www-form-urlencoded",
-    "origin": "https://checkout.stripe.com",
-    "referer": "https://checkout.stripe.com/",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
+# Try curl_cffi first for TLS/JA3 fingerprint impersonation
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+
+
+# ─── Browser User-Agent pool ───
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+]
+
+
+def _get_headers() -> dict:
+    """Dynamic Stripe.js browser-like headers."""
+    ua = random.choice(USER_AGENTS)
+    return {
+        "accept": "application/json",
+        "content-type": "application/x-www-form-urlencoded",
+        "origin": "https://checkout.stripe.com",
+        "referer": "https://checkout.stripe.com/",
+        "user-agent": ua,
+        "accept-language": "en-US,en;q=0.9",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+    }
+
 
 def escape_md(text: str) -> str:
     if not text:
@@ -21,9 +49,9 @@ def escape_md(text: str) -> str:
 
 def extract_checkout_url(text: str) -> str:
     patterns = [
-        r'https?://checkout\.stripe\.com/c/pay/cs_[^\s\"\'\<\>\)]+',
-        r'https?://checkout\.stripe\.com/[^\s\"\'\<\>\)]+',
-        r'https?://buy\.stripe\.com/[^\s\"\'\<\>\)]+',
+        r'https?://checkout\.stripe\.com/c/pay/cs_[^\s\"\'\<\>\\)]+',
+        r'https?://checkout\.stripe\.com/[^\s\"\'\<\>\\)]+',
+        r'https?://buy\.stripe\.com/[^\s\"\'\<\>\\)]+',
     ]
     for p in patterns:
         m = re.search(p, text, re.IGNORECASE)
@@ -66,6 +94,22 @@ def decode_pk_from_url(url: str) -> dict:
     
     return result
 
+
+async def _post_request(url: str, headers: dict, data: str) -> dict:
+    """POST with curl_cffi (preferred) or aiohttp (fallback)."""
+    if HAS_CURL_CFFI:
+        try:
+            async with CurlAsyncSession(impersonate="chrome131") as s:
+                resp = await s.post(url, headers=headers, data=data, timeout=15)
+                return resp.json()
+        except Exception:
+            pass
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, data=data) as r:
+            return await r.json()
+
+
 async def parse_stripe_checkout(url: str) -> dict:
     result = {
         "url": url,
@@ -84,32 +128,33 @@ async def parse_stripe_checkout(url: str) -> dict:
         result["cs"] = decoded.get("cs")
         
         if result["pk"] and result["cs"]:
-            async with aiohttp.ClientSession() as session:
-                body = f"key={result['pk']}&eid=NA&browser_locale=en-US&redirect_type=url"
-                async with session.post(
-                    f"https://api.stripe.com/v1/payment_pages/{result['cs']}/init",
-                    headers=HEADERS,
-                    data=body
-                ) as r:
-                    init_data = await r.json()
+            eid = str(uuid.uuid4())
+            headers = _get_headers()
+            body = f"key={result['pk']}&eid={eid}&browser_locale=en-US&redirect_type=url"
+            
+            init_data = await _post_request(
+                f"https://api.stripe.com/v1/payment_pages/{result['cs']}/init",
+                headers=headers,
+                data=body,
+            )
+            
+            if "error" not in init_data:
+                acc = init_data.get("account_settings", {})
+                result["merchant"] = acc.get("display_name") or acc.get("business_name")
                 
-                if "error" not in init_data:
-                    acc = init_data.get("account_settings", {})
-                    result["merchant"] = acc.get("display_name") or acc.get("business_name")
-                    
-                    lig = init_data.get("line_item_group")
-                    inv = init_data.get("invoice")
-                    if lig:
-                        result["price"] = lig.get("total", 0) / 100
-                        result["currency"] = lig.get("currency", "").upper()
-                    elif inv:
-                        result["price"] = inv.get("total", 0) / 100
-                        result["currency"] = inv.get("currency", "").upper()
-                    
-                    if lig and lig.get("line_items"):
-                        result["product"] = lig["line_items"][0].get("name")
-                else:
-                    result["error"] = init_data.get("error", {}).get("message", "Init failed")
+                lig = init_data.get("line_item_group")
+                inv = init_data.get("invoice")
+                if lig:
+                    result["price"] = lig.get("total", 0) / 100
+                    result["currency"] = lig.get("currency", "").upper()
+                elif inv:
+                    result["price"] = inv.get("total", 0) / 100
+                    result["currency"] = inv.get("currency", "").upper()
+                
+                if lig and lig.get("line_items"):
+                    result["product"] = lig["line_items"][0].get("name")
+            else:
+                result["error"] = init_data.get("error", {}).get("message", "Init failed")
         else:
             result["error"] = "Could not decode PK/CS from URL"
             
