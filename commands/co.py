@@ -550,7 +550,7 @@ def format_time(seconds: float) -> str:
 CARD_SEPARATOR = "━ ━ ━ ━ ━ ━━━ ━ ━ ━ ━ ━"
 STATUS_EMOJIS = {
     'CHARGED': '😎', 'LIVE': '✅', 'DECLINED': '🥲', '3DS': '😡',
-    'ERROR': '💀', 'FAILED': '💀', 'UNKNOWN': '❓'
+    'ERROR': '💀', 'FAILED': '💀', 'UNKNOWN': '❓', 'CHECKOUT_COMPLETED': '✅'
 }
 
 # Decline codes that mean the card is LIVE (valid number, wrong details)
@@ -983,8 +983,11 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     msg = err.get("message", "Failed")
                     err_code = err.get("code", "")
                     
+                    # Check if checkout already succeeded (payment already processed)
+                    if err_code == 'checkout_succeeded_session' or 'already been processed' in msg.lower():
+                        result["status"] = "CHECKOUT_COMPLETED"
                     # Check if session is expired/inactive/canceled
-                    if err_code in ('checkout_not_active_session', 'payment_intent_unexpected_state') or 'no longer active' in msg.lower() or 'status of canceled' in msg.lower():
+                    elif err_code in ('checkout_not_active_session', 'payment_intent_unexpected_state') or 'no longer active' in msg.lower() or 'status of canceled' in msg.lower():
                         result["status"] = "SESSION_EXPIRED"
                     # Check if decline code indicates card is LIVE
                     elif dc in LIVE_DECLINE_CODES:
@@ -1003,7 +1006,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     st = pi.get("status", "") or conf.get("status", "")
                     if st == "succeeded":
                         result["status"] = "CHARGED"
-                        result["response"] = "Payment Successful"
+                        result["response"] = "Payment Successful ✅💚"
                     elif st == "requires_action":
                         result["status"] = "3DS"
                         result["response"] = "3DS Skipped"
@@ -1569,62 +1572,93 @@ async def co_handler(msg: Message):
             break
         if result['status'] == 'SESSION_EXPIRED':
             break
+        if result['status'] == 'CHECKOUT_COMPLETED':
+            break
     
     total_time = round(time.perf_counter() - start_time, 2)
     
     # Determine header
-    if cancelled:
+    # Check if checkout was already completed (payment already processed)
+    checkout_completed = any(r['status'] == 'CHECKOUT_COMPLETED' for r in results)
+    
+    if checkout_completed:
+        header = f"「 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗔𝗹𝗿𝗲𝗮𝗱𝘆 𝗣𝗿𝗼𝗰𝗲𝘀𝘀𝗲𝗱 ✅ 」"
+    elif cancelled:
         header = f"「 𝗖𝗵𝗲𝗰𝗸𝗼𝘂𝘁 𝗖𝗮𝗻𝗰𝗲𝗹𝗹𝗲𝗱 ⛔ 」"
     else:
         header = f"「 𝗦𝘁𝗿𝗶𝗽𝗲 𝗖𝗵𝗮𝗿𝗴𝗲 {price_str} 」 💸"
     
     response = f"<blockquote><code>{header}</code></blockquote>\n\n"
-    response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
-    response += f"「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
-    response += f"「❃」 𝗣𝗿𝗼𝗱𝘂𝗰𝘁 : <code>{checkout_data['product'] or 'N/A'}</code></blockquote>\n\n"
     
-    # Per-card results
-    max_display = 15
-    display_results = results
-    skipped = 0
-    if len(results) > max_display:
-        display_results = results[:5] + results[-(max_display - 5):]
-        skipped = len(results) - max_display
-    
-    for i, r in enumerate(display_results):
-        s_emoji = STATUS_EMOJIS.get(r['status'], '❓')
-        response += f"⸙ 𝑪𝒂𝒓𝒅 ➜ <code>{r['card']}</code>\n"
-        response += f"⌬ 𝑺𝒕𝒂𝒕𝒖𝒔 ➜ {r['status']} {s_emoji}\n"
-        response += f"❖ 𝑹𝒆𝒔𝒑𝒐𝒏𝒔𝒆 ➜ <code>{r['response']}</code>\n"
-        if i < len(display_results) - 1:
-            if skipped > 0 and i == 4:
-                response += f"       ⋯ {skipped} 𝗺𝗼𝗿𝗲 𝗰𝗮𝗿𝗱𝘀 ⋯\n"
-            response += f"{CARD_SEPARATOR}\n"
-    
-    # Summary
+    # Summary counts
     charged_count = sum(1 for r in results if r['status'] == 'CHARGED')
     live_count = sum(1 for r in results if r['status'] == 'LIVE')
     declined_count = sum(1 for r in results if r['status'] == 'DECLINED')
     three_ds_count = sum(1 for r in results if r['status'] == '3DS')
     error_count = sum(1 for r in results if r['status'] in ['ERROR', 'FAILED', 'UNKNOWN', 'NOT SUPPORTED'])
     
-    response += f"\n<blockquote>💲 𝗦𝘂𝗺𝗺𝗮𝗿𝘆:\n"
-    response += f"😎 𝗛𝗶𝘁𝘀: {charged_count}\n"
-    if live_count > 0:
-        response += f"✅ 𝗟𝗶𝘃𝗲: {live_count}\n"
-    response += f"🥲 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
-    if three_ds_count > 0:
-        response += f"😡 𝟯𝗗𝗦: {three_ds_count}\n"
-    if error_count > 0:
-        response += f"💀 𝗘𝗿𝗿𝗼𝗿𝘀: {error_count}\n"
-    response += f"🧮 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
-    response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}\n"
     req_name = msg.from_user.full_name or msg.from_user.username or 'Unknown'
     req_user = f"@{msg.from_user.username}" if msg.from_user.username else req_name
-    response += f"\nMᴇssᴀɢᴇ Bʸ: {req_user}</blockquote>"
     
-    # Add success URL if card was charged
-    if charged_card and checkout_data.get('success_url'):
-        response += f"\n\n<blockquote>🔗 <a href=\"{checkout_data['success_url']}\">Open Success Page</a></blockquote>"
+    if charged_card:
+        # ── HIT FORMAT: Only show the charged card, clean and simple ──
+        site_url = checkout_data.get('success_url') or checkout_data.get('url') or 'N/A'
+        
+        response += f"<blockquote>「❃」 𝗦𝗶𝘁𝗲 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
+        response += f"「❃」 𝗣𝗿𝗼𝗱𝘂𝗰𝘁 : <code>{checkout_data['product'] or 'N/A'}</code>\n"
+        response += f"「❃」 𝗣𝗿𝗶𝗰𝗲 : <code>{price_str}</code>\n"
+        response += f"「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code></blockquote>\n\n"
+        
+        response += f"⸙ 𝑪𝒂𝒓𝒅 ➜ <code>{charged_card['card']}</code>\n"
+        response += f"⌬ 𝑺𝒕𝒂𝒕𝒖𝒔 ➜ CHARGED 😎\n"
+        response += f"❖ 𝑹𝒆𝒔𝒑𝒐𝒏𝒔𝒆 ➜ <code>{charged_card['response']}</code>\n\n"
+        
+        response += f"<blockquote>💲 𝗦𝘂𝗺𝗺𝗮𝗿𝘆:\n"
+        response += f"😎 𝗛𝗶𝘁𝘀: {charged_count}\n"
+        response += f"🥲 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
+        if three_ds_count > 0:
+            response += f"😡 𝟯𝗗𝗦: {three_ds_count}\n"
+        response += f"🧮 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
+        response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}\n"
+        response += f"\nMᴇssᴀɢᴇ Bʸ: {req_user}</blockquote>"
+        
+        if checkout_data.get('success_url'):
+            response += f"\n\n<blockquote>🔗 <a href=\"{checkout_data['success_url']}\">Open Success Page</a></blockquote>"
+    else:
+        # ── NO HIT FORMAT: Show all cards with full details ──
+        response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
+        response += f"「❃」 𝗠𝗲𝗿𝗰𝗵𝗮𝗻𝘁 : <code>{checkout_data['merchant'] or 'N/A'}</code>\n"
+        response += f"「❃」 𝗣𝗿𝗼𝗱𝘂𝗰𝘁 : <code>{checkout_data['product'] or 'N/A'}</code></blockquote>\n\n"
+        
+        # Per-card results
+        max_display = 15
+        display_results = results
+        skipped = 0
+        if len(results) > max_display:
+            display_results = results[:5] + results[-(max_display - 5):]
+            skipped = len(results) - max_display
+        
+        for i, r in enumerate(display_results):
+            s_emoji = STATUS_EMOJIS.get(r['status'], '❓')
+            response += f"⸙ 𝑪𝒂𝒓𝒅 ➜ <code>{r['card']}</code>\n"
+            response += f"⌬ 𝑺𝒕𝒂𝒕𝒖𝒔 ➜ {r['status']} {s_emoji}\n"
+            response += f"❖ 𝑹𝒆𝒔𝒑𝒐𝒏𝒔𝒆 ➜ <code>{r['response']}</code>\n"
+            if i < len(display_results) - 1:
+                if skipped > 0 and i == 4:
+                    response += f"       ⋯ {skipped} 𝗺𝗼𝗿𝗲 𝗰𝗮𝗿𝗱𝘀 ⋯\n"
+                response += f"{CARD_SEPARATOR}\n"
+        
+        response += f"\n<blockquote>💲 𝗦𝘂𝗺𝗺𝗮𝗿𝘆:\n"
+        response += f"😎 𝗛𝗶𝘁𝘀: {charged_count}\n"
+        if live_count > 0:
+            response += f"✅ 𝗟𝗶𝘃𝗲: {live_count}\n"
+        response += f"🥲 𝗗𝗲𝗰𝗹𝗶𝗻𝗲𝘀: {declined_count}\n"
+        if three_ds_count > 0:
+            response += f"😡 𝟯𝗗𝗦: {three_ds_count}\n"
+        if error_count > 0:
+            response += f"💀 𝗘𝗿𝗿𝗼𝗿𝘀: {error_count}\n"
+        response += f"🧮 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
+        response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}\n"
+        response += f"\nMᴇssᴀɢᴇ Bʸ: {req_user}</blockquote>"
     
     await processing_msg.edit_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
