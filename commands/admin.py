@@ -1,4 +1,3 @@
-import sys
 import asyncio
 from aiogram import Router, Bot
 from aiogram.types import Message, ChatPermissions
@@ -10,10 +9,84 @@ router = Router()
 ALLOWED_GROUP = -1003414533097
 OWNER_ID = 6957681631
 
+# Global pause flag — when True, bot ignores all commands except /startbot
+bot_paused = False
+
+
+def is_bot_paused() -> bool:
+    """Check if the bot is currently paused."""
+    return bot_paused
+
 
 def is_owner(msg: Message) -> bool:
     """Check if the user is the bot owner."""
     return msg.from_user and msg.from_user.id == OWNER_ID
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  /stopbot — Pause the bot (ignore cmds)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@router.message(Command("stopbot"))
+async def stopbot_handler(msg: Message, bot: Bot):
+    global bot_paused
+
+    if not is_owner(msg):
+        await msg.answer(
+            "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗢𝘄𝗻𝗲𝗿 𝗼𝗻𝗹𝘆 𝗰𝗼𝗺𝗺𝗮𝗻𝗱</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    if bot_paused:
+        await msg.answer(
+            "<blockquote><code>⏸ 𝗕𝗼𝘁 𝗔𝗹𝗿𝗲𝗮𝗱𝘆 𝗣𝗮𝘂𝘀𝗲𝗱</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗨𝘀𝗲 <code>/startbot</code> 𝘁𝗼 𝗿𝗲𝘀𝘂𝗺𝗲</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    bot_paused = True
+
+    await msg.answer(
+        "<blockquote><code>⏸ 𝗕𝗼𝘁 𝗣𝗮𝘂𝘀𝗲𝗱 ✅</code></blockquote>\n\n"
+        "<blockquote>「❃」 𝗕𝗼𝘁 𝘄𝗶𝗹𝗹 𝗶𝗴𝗻𝗼𝗿𝗲 𝗮𝗹𝗹 𝗰𝗼𝗺𝗺𝗮𝗻𝗱𝘀\n"
+        "「❃」 𝗨𝘀𝗲 <code>/startbot</code> 𝘁𝗼 𝗿𝗲𝗮𝗰𝘁𝗶𝘃𝗮𝘁𝗲</blockquote>",
+        parse_mode=ParseMode.HTML
+    )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  /startbot — Resume the bot
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@router.message(Command("startbot"))
+async def startbot_handler(msg: Message, bot: Bot):
+    global bot_paused
+
+    if not is_owner(msg):
+        await msg.answer(
+            "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗢𝘄𝗻𝗲𝗿 𝗼𝗻𝗹𝘆 𝗰𝗼𝗺𝗺𝗮𝗻𝗱</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    if not bot_paused:
+        await msg.answer(
+            "<blockquote><code>▶️ 𝗕𝗼𝘁 𝗔𝗹𝗿𝗲𝗮𝗱𝘆 𝗔𝗰𝘁𝗶𝘃𝗲</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗕𝗼𝘁 𝗶𝘀 𝗮𝗹𝗿𝗲𝗮𝗱𝘆 𝗿𝘂𝗻𝗻𝗶𝗻𝗴</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    bot_paused = False
+
+    await msg.answer(
+        "<blockquote><code>▶️ 𝗕𝗼𝘁 𝗔𝗰𝘁𝗶𝘃𝗮𝘁𝗲𝗱 ✅</code></blockquote>\n\n"
+        "<blockquote>「❃」 𝗕𝗼𝘁 𝗶𝘀 𝗻𝗼𝘄 𝗮𝗰𝘁𝗶𝘃𝗲 𝗮𝗻𝗱 𝗿𝗲𝗮𝗱𝘆\n"
+        "「❃」 𝗔𝗹𝗹 𝗰𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗿𝗲 𝗻𝗼𝘄 𝗲𝗻𝗮𝗯𝗹𝗲𝗱</blockquote>",
+        parse_mode=ParseMode.HTML
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -25,6 +98,14 @@ async def purge_handler(msg: Message, bot: Bot):
         await msg.answer(
             "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
             "<blockquote>「❃」 𝗢𝘄𝗻𝗲𝗿 𝗼𝗻𝗹𝘆 𝗰𝗼𝗺𝗺𝗮𝗻𝗱</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    if bot_paused:
+        await msg.answer(
+            "<blockquote><code>⏸ 𝗕𝗼𝘁 𝗣𝗮𝘂𝘀𝗲𝗱</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗨𝘀𝗲 <code>/startbot</code> 𝘁𝗼 𝗿𝗲𝘀𝘂𝗺𝗲</blockquote>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -114,6 +195,14 @@ async def lock_handler(msg: Message, bot: Bot):
         )
         return
 
+    if bot_paused:
+        await msg.answer(
+            "<blockquote><code>⏸ 𝗕𝗼𝘁 𝗣𝗮𝘂𝘀𝗲𝗱</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗨𝘀𝗲 <code>/startbot</code> 𝘁𝗼 𝗿𝗲𝘀𝘂𝗺𝗲</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
     if msg.chat.type == "private":
         await msg.answer(
             "<blockquote><code>⚠️ 𝗚𝗿𝗼𝘂𝗽 𝗢𝗻𝗹𝘆</code></blockquote>\n\n"
@@ -123,7 +212,6 @@ async def lock_handler(msg: Message, bot: Bot):
         return
 
     try:
-        # Restrict all members from sending any messages
         locked_permissions = ChatPermissions(
             can_send_messages=False,
             can_send_audios=False,
@@ -136,7 +224,7 @@ async def lock_handler(msg: Message, bot: Bot):
             can_send_other_messages=False,
             can_add_web_page_previews=False,
             can_change_info=False,
-            can_invite_users=True,  # Keep invite ability
+            can_invite_users=True,
             can_pin_messages=False,
             can_manage_topics=False,
         )
@@ -174,6 +262,14 @@ async def unlock_handler(msg: Message, bot: Bot):
         )
         return
 
+    if bot_paused:
+        await msg.answer(
+            "<blockquote><code>⏸ 𝗕𝗼𝘁 𝗣𝗮𝘂𝘀𝗲𝗱</code></blockquote>\n\n"
+            "<blockquote>「❃」 𝗨𝘀𝗲 <code>/startbot</code> 𝘁𝗼 𝗿𝗲𝘀𝘂𝗺𝗲</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
     if msg.chat.type == "private":
         await msg.answer(
             "<blockquote><code>⚠️ 𝗚𝗿𝗼𝘂𝗽 𝗢𝗻𝗹𝘆</code></blockquote>\n\n"
@@ -183,7 +279,6 @@ async def unlock_handler(msg: Message, bot: Bot):
         return
 
     try:
-        # Restore all default permissions
         unlocked_permissions = ChatPermissions(
             can_send_messages=True,
             can_send_audios=True,
@@ -218,42 +313,3 @@ async def unlock_handler(msg: Message, bot: Bot):
             f"「❃」 𝗠𝗮𝗸𝗲 𝘀𝘂𝗿𝗲 𝗯𝗼𝘁 𝗶𝘀 𝗮𝗱𝗺𝗶𝗻 𝘄𝗶𝘁𝗵 '𝗥𝗲𝘀𝘁𝗿𝗶𝗰𝘁 𝗠𝗲𝗺𝗯𝗲𝗿𝘀'</blockquote>",
             parse_mode=ParseMode.HTML
         )
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  /stopbot — Gracefully stop the bot
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-@router.message(Command("stopbot"))
-async def stopbot_handler(msg: Message, bot: Bot):
-    if not is_owner(msg):
-        await msg.answer(
-            "<blockquote><code>𝗔𝗰𝗰𝗲𝘀𝘀 𝗗𝗲𝗻𝗶𝗲𝗱 ❌</code></blockquote>\n\n"
-            "<blockquote>「❃」 𝗢𝘄𝗻𝗲𝗿 𝗼𝗻𝗹𝘆 𝗰𝗼𝗺𝗺𝗮𝗻𝗱</blockquote>",
-            parse_mode=ParseMode.HTML
-        )
-        return
-
-    await msg.answer(
-        "<blockquote><code>⏹ 𝗕𝗼𝘁 𝗦𝘁𝗼𝗽𝗽𝗶𝗻𝗴... 👋</code></blockquote>\n\n"
-        "<blockquote>「❃」 𝗦𝗵𝘂𝘁𝘁𝗶𝗻𝗴 𝗱𝗼𝘄𝗻 𝗴𝗿𝗮𝗰𝗲𝗳𝘂𝗹𝗹𝘆\n"
-        "「❃」 𝗕𝗼𝘁 𝘄𝗶𝗹𝗹 𝗴𝗼 𝗼𝗳𝗳𝗹𝗶𝗻𝗲 𝗻𝗼𝘄</blockquote>",
-        parse_mode=ParseMode.HTML
-    )
-
-    # Close aiohttp session if exists
-    try:
-        from functions.charge_functions import _session
-        if _session and not _session.closed:
-            await _session.close()
-    except Exception:
-        pass
-
-    # Close bot session
-    try:
-        await bot.session.close()
-    except Exception:
-        pass
-
-    # Exit the process
-    await asyncio.sleep(1)
-    sys.exit(0)
