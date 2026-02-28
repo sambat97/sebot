@@ -885,8 +885,8 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     msg = err.get("message", "Failed")
                     err_code = err.get("code", "")
                     
-                    # Check if session is expired/inactive
-                    if err_code == 'checkout_not_active_session' or 'no longer active' in msg.lower():
+                    # Check if session is expired/inactive/canceled
+                    if err_code in ('checkout_not_active_session', 'payment_intent_unexpected_state') or 'no longer active' in msg.lower() or 'status of canceled' in msg.lower():
                         result["status"] = "SESSION_EXPIRED"
                     # Check if decline code indicates card is LIVE
                     elif dc in LIVE_DECLINE_CODES:
