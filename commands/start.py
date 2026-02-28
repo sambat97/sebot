@@ -98,6 +98,8 @@ async def help_handler(msg: Message):
 
 @router.message(Command("myid"))
 async def myid_handler(msg: Message):
+    if msg.from_user.id != OWNER_ID:
+        return
     await msg.answer(
         f"<blockquote><code>𝗜𝗗 𝗜𝗻𝗳𝗼 🔍</code></blockquote>\n\n"
         f"<blockquote>「❃」 𝗖𝗵𝗮𝘁 𝗜𝗗 : <code>{msg.chat.id}</code>\n"
