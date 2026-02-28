@@ -1012,15 +1012,8 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
             time_on_page = random.randint(8000, 90000)  # 8-90 seconds (realistic range)
             eid = generate_eid()
             
-            # Behavioral signals — simulate real user typing + clicking
-            key_down_count = random.randint(15, 45)   # keystrokes while filling form
-            mouse_click_count = random.randint(3, 12)  # clicks on form fields
-            
             # Randomize pasted_fields (real users sometimes paste, sometimes type)
             pasted = random.choice(["number", "number", "number", ""])
-            # If pasted, fewer keystrokes (user only typed CVV + maybe name)
-            if pasted:
-                key_down_count = random.randint(6, 20)
             
             print(f"[DEBUG] Stripe.js Emulation: Confirming with fingerprints + TLS impersonation...")
             
@@ -1048,8 +1041,6 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 f"&payment_method_data[sid]={fp['sid']}"
                 f"&payment_method_data[payment_user_agent]={get_random_stripe_js_agent()}"
                 f"&payment_method_data[time_on_page]={time_on_page}"
-                f"&payment_method_data[key_down_count]={key_down_count}"
-                f"&payment_method_data[mouse_click_count]={mouse_click_count}"
             )
             if pasted:
                 conf_body += f"&payment_method_data[pasted_fields]={pasted}"
