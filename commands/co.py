@@ -32,7 +32,7 @@ SERVER_FLAGS = {
 }
 SERVER_DISPLAY = SERVER_FLAGS.get(SERVER_ID, f'🌐 {SERVER_ID.upper()}')
 CMD_NAME = SERVER_ID  # command name = server id
-PROXY_FILE = "proxies.json"
+PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "proxies.json")
 
 USER_AGENTS = [
     # Chrome Windows (various versions)
@@ -477,6 +477,9 @@ LIVE_DECLINE_CODES = {
 }
 
 def check_access(msg: Message) -> bool:
+    from commands.admin import is_bot_paused
+    if is_bot_paused():
+        return False
     if msg.chat.id == ALLOWED_GROUP:
         return True
     if msg.chat.type == "private" and msg.from_user.id == OWNER_ID:
