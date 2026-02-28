@@ -92,6 +92,66 @@ STRIPE_JS_VERSIONS = [
     "v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5",
 ]
 
+# Pool of realistic billing addresses for randomization
+BILLING_ADDRESSES = [
+    # US addresses (various states)
+    {"name": "James Wilson", "line1": "742 Evergreen Terrace", "city": "Springfield", "state": "IL", "zip": "62704", "country": "US"},
+    {"name": "Sarah Johnson", "line1": "1520 Oak Street", "city": "San Francisco", "state": "CA", "zip": "94117", "country": "US"},
+    {"name": "Michael Brown", "line1": "308 Meadow Lane", "city": "Austin", "state": "TX", "zip": "78701", "country": "US"},
+    {"name": "Emily Davis", "line1": "2145 Birch Drive", "city": "Denver", "state": "CO", "zip": "80202", "country": "US"},
+    {"name": "Robert Martinez", "line1": "987 Pine Avenue", "city": "Miami", "state": "FL", "zip": "33101", "country": "US"},
+    {"name": "Jessica Taylor", "line1": "1100 Maple Road", "city": "Seattle", "state": "WA", "zip": "98101", "country": "US"},
+    {"name": "David Anderson", "line1": "456 Cedar Boulevard", "city": "Portland", "state": "OR", "zip": "97201", "country": "US"},
+    {"name": "Ashley Thomas", "line1": "2301 Elm Street", "city": "Chicago", "state": "IL", "zip": "60601", "country": "US"},
+    {"name": "Christopher Lee", "line1": "789 Walnut Court", "city": "Boston", "state": "MA", "zip": "02101", "country": "US"},
+    {"name": "Amanda White", "line1": "1435 Spruce Way", "city": "Nashville", "state": "TN", "zip": "37201", "country": "US"},
+    {"name": "Daniel Harris", "line1": "562 Willow Lane", "city": "Phoenix", "state": "AZ", "zip": "85001", "country": "US"},
+    {"name": "Stephanie Clark", "line1": "3200 Ash Drive", "city": "Las Vegas", "state": "NV", "zip": "89101", "country": "US"},
+    {"name": "Matthew Lewis", "line1": "871 Poplar Street", "city": "Atlanta", "state": "GA", "zip": "30301", "country": "US"},
+    {"name": "Jennifer Robinson", "line1": "1028 Magnolia Ave", "city": "Charlotte", "state": "NC", "zip": "28201", "country": "US"},
+    {"name": "Andrew Walker", "line1": "445 Hickory Road", "city": "Minneapolis", "state": "MN", "zip": "55401", "country": "US"},
+    {"name": "Lauren Hall", "line1": "1567 Chestnut Blvd", "city": "San Diego", "state": "CA", "zip": "92101", "country": "US"},
+    {"name": "Joshua Allen", "line1": "2890 Sycamore Dr", "city": "Dallas", "state": "TX", "zip": "75201", "country": "US"},
+    {"name": "Megan Young", "line1": "634 Dogwood Lane", "city": "Philadelphia", "state": "PA", "zip": "19101", "country": "US"},
+    {"name": "Ryan King", "line1": "1750 Juniper Street", "city": "Columbus", "state": "OH", "zip": "43201", "country": "US"},
+    {"name": "Brittany Wright", "line1": "903 Redwood Ave", "city": "San Antonio", "state": "TX", "zip": "78201", "country": "US"},
+    {"name": "Kevin Scott", "line1": "2100 Cypress Road", "city": "Indianapolis", "state": "IN", "zip": "46201", "country": "US"},
+    {"name": "Rachel Green", "line1": "1388 Laurel Way", "city": "Jacksonville", "state": "FL", "zip": "32099", "country": "US"},
+    {"name": "Brandon Adams", "line1": "476 Hazel Court", "city": "Fort Worth", "state": "TX", "zip": "76101", "country": "US"},
+    {"name": "Samantha Nelson", "line1": "2567 Palm Drive", "city": "Tucson", "state": "AZ", "zip": "85701", "country": "US"},
+    {"name": "Tyler Carter", "line1": "831 Aspen Lane", "city": "Raleigh", "state": "NC", "zip": "27601", "country": "US"},
+    {"name": "Kayla Mitchell", "line1": "1245 Linden Blvd", "city": "Kansas City", "state": "MO", "zip": "64101", "country": "US"},
+    {"name": "Jason Perez", "line1": "390 Beech Street", "city": "Sacramento", "state": "CA", "zip": "95801", "country": "US"},
+    {"name": "Nicole Roberts", "line1": "1680 Hemlock Road", "city": "Salt Lake City", "state": "UT", "zip": "84101", "country": "US"},
+    {"name": "Justin Turner", "line1": "2034 Alder Ave", "city": "Milwaukee", "state": "WI", "zip": "53201", "country": "US"},
+    {"name": "Heather Phillips", "line1": "517 Cottonwood Dr", "city": "Tampa", "state": "FL", "zip": "33601", "country": "US"},
+    {"name": "Aaron Campbell", "line1": "1890 Fir Street", "city": "Pittsburgh", "state": "PA", "zip": "15201", "country": "US"},
+    {"name": "Tiffany Parker", "line1": "643 Sequoia Way", "city": "Cincinnati", "state": "OH", "zip": "45201", "country": "US"},
+    {"name": "Nathan Evans", "line1": "2456 Ivy Lane", "city": "Orlando", "state": "FL", "zip": "32801", "country": "US"},
+    {"name": "Christina Edwards", "line1": "1102 Holly Road", "city": "St. Louis", "state": "MO", "zip": "63101", "country": "US"},
+    {"name": "Patrick Collins", "line1": "785 Oakwood Blvd", "city": "Honolulu", "state": "HI", "zip": "96801", "country": "US"},
+    {"name": "Amber Stewart", "line1": "1934 Pinewood Ave", "city": "Anchorage", "state": "AK", "zip": "99501", "country": "US"},
+    {"name": "Sean Morris", "line1": "328 Birchwood Ct", "city": "Newark", "state": "NJ", "zip": "07101", "country": "US"},
+    {"name": "Vanessa Rogers", "line1": "2710 Cedarwood Dr", "city": "Louisville", "state": "KY", "zip": "40201", "country": "US"},
+    {"name": "Derek Reed", "line1": "1456 Maplewood St", "city": "Richmond", "state": "VA", "zip": "23218", "country": "US"},
+    {"name": "Melissa Cook", "line1": "892 Timberline Rd", "city": "Boise", "state": "ID", "zip": "83701", "country": "US"},
+    # Macau addresses
+    {"name": "Wong Ka Ming", "line1": "Rua de S. Paulo No. 45", "city": "Macau", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Chan Mei Ling", "line1": "Av. de Almeida Ribeiro 128", "city": "Macau", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Ho Siu Wai", "line1": "Rua do Campo No. 78", "city": "Macau", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Leong Chi Keong", "line1": "Estrada do Repouso 32", "city": "Taipa", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Lam Pui San", "line1": "Rua de Pedro Coutinho 56", "city": "Macau", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Fong Weng Chon", "line1": "Av. do Conselheiro Ferreira de Almeida 90", "city": "Macau", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Cheang Sok Ian", "line1": "Rua dos Mercadores 112", "city": "Macau", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Ng Kuok Cheong", "line1": "Travessa do Mastro 18", "city": "Macau", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Tam Wai Man", "line1": "Rua da Tercena 24", "city": "Coloane", "state": "Macau", "zip": "999078", "country": "MO"},
+    {"name": "Lei Kin Yun", "line1": "Av. de Kwong Tung 67", "city": "Taipa", "state": "Macau", "zip": "999078", "country": "MO"},
+]
+
+def get_random_billing() -> dict:
+    """Get a random billing address from the pool."""
+    return random.choice(BILLING_ADDRESSES)
+
 # Per-user persistent fingerprints (muid stays same per machine)
 _user_fingerprints = {}
 
@@ -845,12 +905,23 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 
                 cust = init_data.get("customer") or {}
                 addr = cust.get("address") or {}
-                name = cust.get("name") or "John Smith"
-                country = addr.get("country") or "US"
-                line1 = addr.get("line1") or "476 West White Mountain Blvd"
-                city = addr.get("city") or "Pinetop"
-                state = addr.get("state") or "AZ"
-                zip_code = addr.get("postal_code") or "85929"
+                
+                # Use customer data if available, otherwise random billing
+                if cust.get("name") or addr.get("line1"):
+                    name = cust.get("name") or "John Smith"
+                    country = addr.get("country") or "US"
+                    line1 = addr.get("line1") or "742 Evergreen Terrace"
+                    city = addr.get("city") or "Springfield"
+                    state = addr.get("state") or "IL"
+                    zip_code = addr.get("postal_code") or "62704"
+                else:
+                    billing = get_random_billing()
+                    name = billing["name"]
+                    country = billing["country"]
+                    line1 = billing["line1"]
+                    city = billing["city"]
+                    state = billing["state"]
+                    zip_code = billing["zip"]
                 
                 if attempt > 0:
                     print(f"[DEBUG] Retry attempt {attempt}...")
