@@ -11,6 +11,9 @@ OWNER_ID = 6957681631
 CMD_NAME = SERVER_ID
 
 def check_access(msg: Message) -> bool:
+    from commands.admin import is_bot_paused
+    if is_bot_paused():
+        return False
     if msg.chat.id == ALLOWED_GROUP:
         return True
     if msg.chat.type == "private" and msg.from_user.id == OWNER_ID:
@@ -36,7 +39,8 @@ async def start_handler(msg: Message):
         "    • <code>/purge</code> - Delete all messages\n"
         "    • <code>/lock</code> - Lock group chat\n"
         "    • <code>/unlock</code> - Unlock group chat\n"
-        "    • <code>/stopbot</code> - Stop the bot</blockquote>\n\n"
+        "    • <code>/stopbot</code> - Stop the bot\n"
+        "    • <code>/startbot</code> - Activate the bot</blockquote>\n\n"
         "<blockquote>「❃」 𝗦𝘂𝗽𝗽𝗼𝗿𝘁𝗲𝗱 𝗨𝗥𝗟𝘀\n"
         "    • <code>checkout.stripe.com</code>\n"
         "    • <code>buy.stripe.com</code></blockquote>\n\n"
@@ -64,7 +68,8 @@ async def help_handler(msg: Message):
         "「❃」 <code>/purge</code> - Delete all group messages\n"
         "「❃」 <code>/lock</code> - Lock group chat\n"
         "「❃」 <code>/unlock</code> - Unlock group chat\n"
-        "「❃」 <code>/stopbot</code> - Stop the bot</blockquote>\n\n"
+        "「❃」 <code>/stopbot</code> - Stop the bot\n"
+        "「❃」 <code>/startbot</code> - Activate the bot</blockquote>\n\n"
         "<blockquote>「❃」 𝗖𝗮𝗿𝗱 𝗙𝗼𝗿𝗺𝗮𝘁 : <code>cc|mm|yy|cvv</code>\n"
         "「❃」 𝗘𝘅𝗮𝗺𝗽𝗹𝗲 : <code>4242424242424242|12|25|123</code></blockquote>"
     )
