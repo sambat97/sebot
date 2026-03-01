@@ -1220,9 +1220,6 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, us
                                 f"%2C%22browserTZ%22%3A%22{random.choice(['-300','-360','-420','-480'])}%22"
                                 f"%2C%22browserUserAgent%22%3A%22{headers.get('user-agent','')}%22"
                                 f"%7D"
-                                f"&one_click_authn_device_support[hosted]=false"
-                                f"&one_click_authn_device_support[same_device]=false"
-                                f"&one_click_authn_device_support[spc_eligible]=false"
                                 f"&key={pk}"
                             )
                             
